@@ -671,6 +671,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         scrollToMessage: timelineController.scrollToMessage,
         resumeToBottom: timelineController.resumeToBottomInstant,
     });
+    const { scrollToMessageId: navScrollToMessageId } = navigation;
 
     const handleHistoryScroll = timelineController.handleHistoryScroll;
 
@@ -838,14 +839,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         beginJumpScrollGuard();
 
         try {
-            const scrolled = await navigation.scrollToMessageId(target.targetId, { behavior: 'smooth' });
+            const scrolled = await navScrollToMessageId(target.targetId, { behavior: 'smooth' });
             if (!scrolled) {
                 clearJumpScrollGuard();
             }
         } catch {
             clearJumpScrollGuard();
         }
-    }, [beginJumpScrollGuard, clearJumpScrollGuard, getJumpTarget, navigation]);
+    }, [beginJumpScrollGuard, clearJumpScrollGuard, getJumpTarget, navScrollToMessageId]);
 
     React.useEffect(() => {
         if (typeof window === 'undefined' || !currentSessionId) return;
