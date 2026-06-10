@@ -68,7 +68,7 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
         if (isHeld) {
             holdHoverTimerRef.current = window.setTimeout(() => {
                 setIsLongHover(true);
-            }, 250);
+            }, 350);
         } else {
             if (holdHoverTimerRef.current !== null) {
                 window.clearTimeout(holdHoverTimerRef.current);

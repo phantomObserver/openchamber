@@ -65,7 +65,7 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, on
         if (isHeld) {
             holdHoverTimerRef.current = window.setTimeout(() => {
                 setIsLongHover(true);
-            }, 250);
+            }, 350);
         } else {
             if (holdHoverTimerRef.current !== null) {
                 window.clearTimeout(holdHoverTimerRef.current);

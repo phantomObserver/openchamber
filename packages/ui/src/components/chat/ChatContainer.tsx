@@ -60,6 +60,7 @@ const IDLE_SESSION_STATUS = { type: 'idle' as const };
 const CHAT_FORCE_SCROLL_BOTTOM_EVENT = 'openchamber:chat-force-scroll-bottom';
 const DEFAULT_RETRY_MESSAGE = 'Quota limit reached. Retrying automatically.';
 const JUMP_SCROLL_GUARD_TIMEOUT_MS = 1000;
+const FULL_HISTORY_LOADING_TOOLTIP_DELAY_MS = 200;
 const CHAT_SCROLL_STYLE = {
     overflowAnchor: 'none',
     overscrollBehavior: 'contain',
@@ -892,7 +893,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
 
         fullHistoryNavigationBusyRef.current = true;
         setIsFullHistoryNavigationBusy(true);
-        setIsFullHistoryLoading(true);
+        window.setTimeout(() => {
+            if (fullHistoryNavigationBusyRef.current) {
+                setIsFullHistoryLoading(true);
+            }
+        }, FULL_HISTORY_LOADING_TOOLTIP_DELAY_MS);
 
         // Defer history loading by a brief timeout to let the first dots of the "Loading session history" tooltip render smoothly first
         window.setTimeout(async () => {
