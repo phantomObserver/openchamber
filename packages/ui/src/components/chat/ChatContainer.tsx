@@ -676,6 +676,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
     const [isJumpScrollActive, setIsJumpScrollActive] = React.useState(false);
     const jumpNavigationBusyRef = React.useRef(false);
     const [isJumpNavigationBusy, setIsJumpNavigationBusy] = React.useState(false);
+    const fullHistoryNavigationBusyRef = React.useRef(false);
+    const [isFullHistoryNavigationBusy, setIsFullHistoryNavigationBusy] = React.useState(false);
+    const [isFullHistoryLoading, setIsFullHistoryLoading] = React.useState(false);
     const jumpScrollGuardRef = React.useRef<{ clear: () => void } | null>(null);
     const jumpNavigationStateRef = React.useRef({
         activeTurnId: timelineController.activeTurnId,
@@ -796,7 +799,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         && (activeTurnIndex !== 0 || activeUserMessageAboveJumpTarget)
         && (!timelineController.pendingRevealWork || isJumpNavigationBusy);
 
-    const getJumpTarget = React.useCallback(() => {
+    const getJumpTarget = React.useCallback((direction: 'previous' | 'next') => {
         const state = jumpNavigationStateRef.current;
         const { turnIds, activeTurnId } = state;
 
@@ -805,28 +808,34 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         }
 
         if (!activeTurnId) {
-            return { targetId: turnIds[turnIds.length - 1] ?? null };
+            return { targetId: direction === 'previous' ? (turnIds[turnIds.length - 1] ?? null) : null };
         }
 
         const currentIndex = turnIds.indexOf(activeTurnId);
 
-        if (currentIndex >= 0 && isTurnUserMessageAboveViewport(activeTurnId)) {
-            return { targetId: activeTurnId };
-        }
+        if (direction === 'previous') {
+            if (currentIndex >= 0 && isTurnUserMessageAboveViewport(activeTurnId)) {
+                return { targetId: activeTurnId };
+            }
 
-        if (currentIndex > 0) {
-            return { targetId: turnIds[currentIndex - 1] ?? null };
+            if (currentIndex > 0) {
+                return { targetId: turnIds[currentIndex - 1] ?? null };
+            }
+        } else {
+            if (currentIndex >= 0 && currentIndex < turnIds.length - 1) {
+                return { targetId: turnIds[currentIndex + 1] ?? null };
+            }
         }
 
         return { targetId: null };
     }, [isTurnUserMessageAboveViewport]);
 
-    const handleJumpToPreviousMessage = React.useCallback(async () => {
+    const handleJumpToUserMessage = React.useCallback(async (direction: 'previous' | 'next') => {
         if (jumpNavigationBusyRef.current) {
             return;
         }
 
-        const target = getJumpTarget();
+        const target = getJumpTarget(direction);
         if (!target.targetId) {
             return;
         }
@@ -844,6 +853,45 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             clearJumpScrollGuard();
         }
     }, [beginJumpScrollGuard, clearJumpScrollGuard, getJumpTarget, navScrollToMessageId]);
+
+    const handleJumpToPreviousMessage = React.useCallback(() => {
+        void handleJumpToUserMessage('previous');
+    }, [handleJumpToUserMessage]);
+
+    const handleJumpToNextMessage = React.useCallback(() => {
+        const target = getJumpTarget('next');
+        if (!target.targetId) {
+            const container = scrollRef.current;
+            if (container) {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+            }
+            return;
+        }
+        void handleJumpToUserMessage('next');
+    }, [getJumpTarget, handleJumpToUserMessage, scrollRef]);
+
+    const handleLoadAllHistoryAndScrollToTop = React.useCallback(async () => {
+        if (fullHistoryNavigationBusyRef.current || jumpNavigationBusyRef.current) {
+            return;
+        }
+
+        fullHistoryNavigationBusyRef.current = true;
+        setIsFullHistoryNavigationBusy(true);
+        setIsFullHistoryLoading(true);
+
+        // Defer history loading by a brief timeout to let the first dots of the "Loading session history" tooltip render smoothly first
+        window.setTimeout(async () => {
+            try {
+                await timelineController.loadAllEarlierAndScrollToTop(() => {
+                    setIsFullHistoryLoading(false);
+                });
+            } finally {
+                fullHistoryNavigationBusyRef.current = false;
+                setIsFullHistoryNavigationBusy(false);
+                setIsFullHistoryLoading(false);
+            }
+        }, 600);
+    }, [timelineController]);
 
     React.useEffect(() => {
         if (typeof window === 'undefined' || !currentSessionId) return;
@@ -1145,7 +1193,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
 			<ScrollToTopButton
 				visible={showJumpToPreviousMessage && !isDesktopExpandedInput}
 				onClick={handleJumpToPreviousMessage}
-				disabled={isJumpNavigationBusy}
+				onHold={() => { void handleLoadAllHistoryAndScrollToTop(); }}
+				isLoadingHistory={isFullHistoryLoading}
+				disabled={isJumpNavigationBusy || isFullHistoryNavigationBusy}
 				onWheelCapture={handleNavigationWheel}
 			/>
 			<ChatViewport
@@ -1183,7 +1233,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
                 {!isDesktopExpandedInput && sessionMessages.length > 0 && (
                     <ScrollToBottomButton
                         visible={timelineController.showScrollToBottom}
-                        onClick={navigation.resumeToLatest}
+                        onClick={handleJumpToNextMessage}
+                        onHold={navigation.resumeToLatest}
+                        disabled={isJumpNavigationBusy || isFullHistoryNavigationBusy}
                         onWheelCapture={handleNavigationWheel}
                     />
                 )}
@@ -1194,7 +1246,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
                 containerRef={scrollRef}
                 suppressVisibility={isFollowingProgrammatically && !isJumpScrollActive && !isScrollToBottomAnimating}
                 userIntentOnly
-                forceVisible={isJumpScrollActive || isScrollToBottomAnimating}
+                forceVisible={isJumpScrollActive || isScrollToBottomAnimating || isFullHistoryNavigationBusy}
                 observeMutations={false}
                 className="absolute inset-y-0 right-0 z-30"
                 style={{ left: 'auto', width: '16px' }}

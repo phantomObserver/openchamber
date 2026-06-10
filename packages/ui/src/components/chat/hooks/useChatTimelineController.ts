@@ -55,6 +55,7 @@ export interface UseChatTimelineControllerResult {
     revealBufferedTurns: () => Promise<boolean>;
     resumeToBottom: () => void;
     resumeToBottomInstant: () => Promise<void>;
+    loadAllEarlierAndScrollToTop: (onLoadingComplete?: () => void) => Promise<boolean>;
     scrollToTurn: (turnId: string, options?: { behavior?: ScrollBehavior }) => Promise<boolean>;
     scrollToMessage: (messageId: string, options?: { behavior?: ScrollBehavior }) => Promise<boolean>;
     handleHistoryScroll: () => void;
@@ -714,6 +715,102 @@ export const useChatTimelineController = ({
         }
     }, [attemptPendingScrollRequest, releaseAutoFollow, scrollRef, sessionId]);
 
+    const loadAllEarlierAndScrollToTop = React.useCallback(async (onLoadingComplete?: () => void): Promise<boolean> => {
+        if (!sessionIdRef.current) {
+            return false;
+        }
+
+        releaseAutoFollow();
+        cancelOverlayScrollbarScroll(scrollRef.current);
+
+        let madeProgress = false;
+
+        // 1. Reveal any locally buffered turns first
+        if (turnStartRef.current > 0) {
+            setTurnStart(0);
+            await waitForNextRenderCommitOrTimeout();
+            madeProgress = true;
+        }
+
+        // 2. Wait for any existing in-flight load operation to finish
+        let waitAttempts = 30;
+        while (historySignalsRef.current.historyLoading && waitAttempts > 0) {
+            waitAttempts -= 1;
+            await waitForNextRenderCommitOrTimeout();
+        }
+
+        // 3. Repeatedly fetch older history from server until there is absolutely no more
+        let remainingAttempts = 100;
+        let consecutiveNoGrowth = 0;
+
+        while (historySignalsRef.current.canLoadEarlier && remainingAttempts > 0) {
+            remainingAttempts -= 1;
+
+            if (turnStartRef.current > 0) {
+                setTurnStart(0);
+                await waitForNextRenderCommitOrTimeout();
+                madeProgress = true;
+                continue;
+            }
+
+            if (!historySignalsRef.current.hasMoreAboveTurns) {
+                break;
+            }
+
+            const beforeCount = messagesRef.current.length;
+
+            // Trigger load of next batch
+            await loadMoreMessages(sessionIdRef.current, 'up');
+            await waitForNextRenderCommitOrTimeout();
+
+            const afterCount = messagesRef.current.length;
+            if (afterCount > beforeCount) {
+                madeProgress = true;
+                consecutiveNoGrowth = 0;
+            } else {
+                consecutiveNoGrowth += 1;
+                // If we get 3 consecutive no-growth results but hasMoreAboveTurns is still true,
+                // wait a little bit extra to let any store updates settle, or break to avoid infinite loop.
+                if (consecutiveNoGrowth >= 3) {
+                    if (!historySignalsRef.current.hasMoreAboveTurns) {
+                        break;
+                    }
+                    // Wait 500ms and try one last time
+                    await new Promise((resolve) => window.setTimeout(resolve, 500));
+                    await loadMoreMessages(sessionIdRef.current, 'up');
+                    await waitForNextRenderCommitOrTimeout();
+                    if (messagesRef.current.length <= afterCount) {
+                        break; // Definitely done or failed
+                    }
+                }
+            }
+        }
+
+        // Double check turnStart is 0
+        if (turnStartRef.current > 0) {
+            setTurnStart(0);
+            await waitForNextRenderCommitOrTimeout();
+            madeProgress = true;
+        }
+
+        // Loading is fully complete, trigger callback before scroll animation starts
+        onLoadingComplete?.();
+
+        // 4. Scroll to the first user message or top
+        const firstTurnId = turnModelRef.current.turnIds[0];
+        if (firstTurnId) {
+            return scrollToMessage(firstTurnId, { behavior: 'smooth' });
+        }
+
+        const container = scrollRef.current;
+        if (container) {
+            container.scrollTo({ top: 0, behavior: 'smooth' });
+            return true;
+        }
+
+        return madeProgress;
+    }, [loadMoreMessages, releaseAutoFollow, scrollRef, scrollToMessage, waitForNextRenderCommitOrTimeout]);
+
     const resumeToBottom = React.useCallback(async () => {
         const nextStart = getInitialTurnStart(turnModelRef.current.turnCount);
         setPendingRevealWork(false);
@@ -760,6 +857,7 @@ export const useChatTimelineController = ({
         revealBufferedTurns,
         resumeToBottom,
         resumeToBottomInstant,
+        loadAllEarlierAndScrollToTop,
         scrollToTurn,
         scrollToMessage,
         handleHistoryScroll,
