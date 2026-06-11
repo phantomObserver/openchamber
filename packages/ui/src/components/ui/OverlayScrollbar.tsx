@@ -14,6 +14,7 @@ type OverlayScrollbarProps = {
   suppressVisibility?: boolean;
   userIntentOnly?: boolean;
   forceVisible?: boolean;
+  pinVerticalToBottom?: boolean;
   style?: React.CSSProperties;
 };
 
@@ -51,6 +52,7 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
   suppressVisibility = false,
   userIntentOnly = false,
   forceVisible = false,
+  pinVerticalToBottom = false,
   style,
 }) => {
   const scrollbarRef = React.useRef<HTMLDivElement>(null);
@@ -94,13 +96,20 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
 
     if (axis === "vertical") {
       thumb.style.height = `${metrics.length}px`;
+      if (pinVerticalToBottom) {
+        thumb.style.bottom = `${TRACK_INSET}px`;
+        thumb.style.transform = "translate3d(0, 0, 0)";
+        return;
+      }
+
+      thumb.style.bottom = "";
       thumb.style.transform = `translate3d(0, ${TRACK_INSET + metrics.offset}px, 0)`;
       return;
     }
 
     thumb.style.width = `${metrics.length}px`;
     thumb.style.transform = `translate3d(${TRACK_INSET + metrics.offset}px, 0, 0)`;
-  }, []);
+  }, [pinVerticalToBottom]);
 
   const updateVisibility = React.useCallback((axis: "vertical" | "horizontal", nextVisible: boolean) => {
     if (axis === "vertical") {
@@ -153,7 +162,7 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       const length = Math.max(minThumbSize, Math.min(trackLength, rawThumb));
       const maxOffset = Math.max(trackLength - length, 0);
       const maxScroll = Math.max(scrollHeight - clientHeight, 1);
-      const offset = (scrollTop / maxScroll) * maxOffset;
+      const offset = pinVerticalToBottom ? maxOffset : (scrollTop / maxScroll) * maxOffset;
       nextVertical = { length, offset };
     }
     if (!isSameThumbMetrics(verticalMetricsRef.current, nextVertical)) {
@@ -184,7 +193,7 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       scheduleHide();
     }
     lastContentHeightRef.current = scrollHeight;
-  }, [applyThumbMetrics, containerRef, disableHorizontal, minThumbSize, scheduleHide, setVisibleIfChanged, updateVisibility]);
+  }, [applyThumbMetrics, containerRef, disableHorizontal, minThumbSize, pinVerticalToBottom, scheduleHide, setVisibleIfChanged, updateVisibility]);
 
   const scheduleMetricsUpdate = React.useCallback(() => {
     if (metricsFrameRef.current !== null) return;
@@ -632,20 +641,18 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
           <div
             className="overlay-scrollbar__thumb-wrapper"
             data-overlay-scrollbar-thumb="vertical"
-              style={{
-                position: "absolute",
-                height: `${verticalMetricsRef.current.length}px`,
-                transform: `translate3d(0, ${TRACK_INSET + verticalMetricsRef.current.offset}px, 0)`,
-                right: 0,
-                width: "16px",
-                pointerEvents: "auto",
-                cursor: "pointer",
-                willChange: "transform",
-              }}
-              ref={verticalThumbRef}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                handlePointerDown(e, "vertical");
+            style={{
+              position: "absolute",
+              right: 0,
+              width: "16px",
+              pointerEvents: "auto",
+              cursor: "pointer",
+              willChange: "transform",
+            }}
+            ref={verticalThumbRef}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              handlePointerDown(e, "vertical");
             }}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -692,20 +699,18 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
           <div
             className="overlay-scrollbar__thumb-wrapper"
             data-overlay-scrollbar-thumb="horizontal"
-              style={{
-                position: "absolute",
-                width: `${horizontalMetricsRef.current.length}px`,
-                transform: `translate3d(${TRACK_INSET + horizontalMetricsRef.current.offset}px, 0, 0)`,
-                bottom: 0,
-                height: "16px",
-                pointerEvents: "auto",
-                cursor: "pointer",
-                willChange: "transform",
-              }}
-              ref={horizontalThumbRef}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                handlePointerDown(e, "horizontal");
+            style={{
+              position: "absolute",
+              bottom: 0,
+              height: "16px",
+              pointerEvents: "auto",
+              cursor: "pointer",
+              willChange: "transform",
+            }}
+            ref={horizontalThumbRef}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              handlePointerDown(e, "horizontal");
             }}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}

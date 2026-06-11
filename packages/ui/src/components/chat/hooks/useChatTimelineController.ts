@@ -72,6 +72,7 @@ const MOBILE_TURN_MODEL_CACHE_MAX = 4
 const MOBILE_TURN_MODEL_CACHE_MAX_MESSAGES = 30
 const HISTORY_RENDER_WAIT_TIMEOUT_MS = 250
 const HISTORY_INTERACTION_GUARD_MS = 2000
+const LOAD_ALL_HISTORY_TIMEOUT_MS = 30000
 const turnModelCache = new Map<string, { messages: ChatMessageEntry[]; model: TurnWindowModel }>()
 const getTurnModelCacheMax = () => {
     if (isVSCodeRuntime()) return VSCODE_TURN_MODEL_CACHE_MAX
@@ -746,8 +747,12 @@ export const useChatTimelineController = ({
         // 3. Repeatedly fetch older history from server until there is absolutely no more
         let remainingAttempts = 100;
         let consecutiveNoGrowth = 0;
+        const deadline = Date.now() + LOAD_ALL_HISTORY_TIMEOUT_MS;
 
         while (historySignalsRef.current.canLoadEarlier && remainingAttempts > 0) {
+            if (Date.now() >= deadline) {
+                break;
+            }
             remainingAttempts -= 1;
 
             if (turnStartRef.current > 0) {
@@ -766,6 +771,11 @@ export const useChatTimelineController = ({
 
             const didLoad = await fetchOlderHistory({ preserveViewport: true });
 
+            if (Date.now() >= deadline) {
+                madeProgress = madeProgress || didLoad || messagesRef.current.length > beforeCount;
+                break;
+            }
+
             const afterCount = messagesRef.current.length;
             if (didLoad || afterCount > beforeCount) {
                 madeProgress = true;
@@ -778,8 +788,11 @@ export const useChatTimelineController = ({
                     if (!historySignalsRef.current.hasMoreAboveTurns) {
                         break;
                     }
-                    // Wait 500ms and try one last time
+                    // Wait briefly for any lagging store updates, but stop if the overall load budget is spent.
                     await new Promise((resolve) => window.setTimeout(resolve, 500));
+                    if (Date.now() >= deadline) {
+                        break;
+                    }
                     await fetchOlderHistory({ preserveViewport: true });
                     if (messagesRef.current.length <= afterCount) {
                         break; // Definitely done or failed

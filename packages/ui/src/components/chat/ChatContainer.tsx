@@ -1094,6 +1094,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         }
 
         if (event.deltaY === 0) {
+            // Chat navigation only smooths vertical movement; horizontal gestures should fall through untouched.
             return;
         }
 
@@ -1314,6 +1315,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
                 suppressVisibility={isFollowingProgrammatically && !isJumpScrollActive && !isScrollToBottomAnimating}
                 userIntentOnly
                 forceVisible={isJumpScrollActive || isScrollToBottomAnimating || isFullHistoryNavigationBusy}
+                pinVerticalToBottom={isPinned && !isJumpScrollActive && !isScrollToBottomAnimating && !isFullHistoryNavigationBusy}
                 observeMutations={false}
                 className="absolute inset-y-0 right-0 z-30"
                 style={{ left: 'auto', width: '16px' }}

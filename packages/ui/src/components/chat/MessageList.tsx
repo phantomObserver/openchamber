@@ -48,6 +48,7 @@ const useStableEvent = <TArgs extends unknown[], TResult>(handler: (...args: TAr
 };
 
 const USER_SHELL_MARKER = 'The following tool was executed by the user';
+const MESSAGE_REVEAL_OFFSET_PX = 24;
 
 const resolveMessageRole = (message: ChatMessageEntry): string | null => {
     const info = message.info as unknown as { clientRole?: string | null | undefined; role?: string | null | undefined };
@@ -1557,7 +1558,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 
         const containerRect = container.getBoundingClientRect();
         const messageRect = messageElement.getBoundingClientRect();
-        const top = messageRect.top - containerRect.top + container.scrollTop;
+        const top = Math.max(0, messageRect.top - containerRect.top + container.scrollTop - MESSAGE_REVEAL_OFFSET_PX);
         container.scrollTo({ top, behavior });
         return true;
     }, [findMessageElement, resolveScrollContainer]);
