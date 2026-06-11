@@ -1,7 +1,7 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 import { OVERLAY_SCROLLBAR_CANCEL_SCROLL_EVENT } from "./overlay-scrollbar-events";
-import { animateElementScrollTo } from "./scroll-animation";
+import { animateElementScrollToRatio } from "./scroll-animation";
 import { cancelSmoothWheelScroll, smoothWheelScrollElement } from "./smoothWheelScroll";
 
 type OverlayScrollbarProps = {
@@ -23,8 +23,19 @@ type ThumbMetrics = {
 };
 
 const USER_SCROLL_INTENT_WINDOW_MS = 1000;
+const CONTENT_GROWTH_VISIBILITY_WINDOW_MS = 1200;
 const METRIC_EPSILON = 0.5;
 const EMPTY_THUMB: ThumbMetrics = { length: 0, offset: 0 };
+const TRACK_INSET = 8;
+
+const clamp = (value: number, min: number, max: number): number => {
+  return Math.min(Math.max(value, min), max);
+};
+
+const getTrackScrollDuration = (distance: number, viewport: number): number => {
+  const normalizedDistance = viewport > 0 ? distance / viewport : 0;
+  return clamp(105 + Math.sqrt(Math.max(normalizedDistance, 0)) * 18, 105, 185);
+};
 
 const isSameThumbMetrics = (a: ThumbMetrics, b: ThumbMetrics): boolean => {
   return Math.abs(a.length - b.length) < METRIC_EPSILON && Math.abs(a.offset - b.offset) < METRIC_EPSILON;
@@ -43,10 +54,14 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
   style,
 }) => {
   const scrollbarRef = React.useRef<HTMLDivElement>(null);
+  const verticalThumbRef = React.useRef<HTMLDivElement>(null);
+  const horizontalThumbRef = React.useRef<HTMLDivElement>(null);
   const scrollAnimRef = React.useRef<number | null>(null);
+  const isTrackScrollAnimatingRef = React.useRef(false);
   const [visible, setVisible] = React.useState(false);
-  const [vertical, setVertical] = React.useState<ThumbMetrics>({ length: 0, offset: 0 });
-  const [horizontal, setHorizontal] = React.useState<ThumbMetrics>({ length: 0, offset: 0 });
+  const visibleRef = React.useRef(false);
+  const [showVertical, setShowVertical] = React.useState(false);
+  const [showHorizontal, setShowHorizontal] = React.useState(false);
   const hideTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = React.useRef<number | null>(null);
   const metricsFrameRef = React.useRef<number | null>(null);
@@ -58,9 +73,70 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     pointerY: number;
     scrollTop: number;
     scrollLeft: number;
-  }>({ pointerX: 0, pointerY: 0, scrollTop: 0, scrollLeft: 0 });
+    thumbTravel: number;
+    maxScroll: number;
+  }>({ pointerX: 0, pointerY: 0, scrollTop: 0, scrollLeft: 0, thumbTravel: 1, maxScroll: 1 });
   const dragAxisRef = React.useRef<"vertical" | "horizontal" | null>(null);
+  const dragScrollTargetRef = React.useRef<{ top: number | null; left: number | null }>({ top: null, left: null });
+  const dragFrameRef = React.useRef<number | null>(null);
   const observedElementsRef = React.useRef<Set<Element>>(new Set());
+  const verticalMetricsRef = React.useRef<ThumbMetrics>(EMPTY_THUMB);
+  const horizontalMetricsRef = React.useRef<ThumbMetrics>(EMPTY_THUMB);
+  const verticalVisibilityRef = React.useRef(false);
+  const horizontalVisibilityRef = React.useRef(false);
+  const lastContentHeightRef = React.useRef(0);
+  const lastContentGrowthAtRef = React.useRef(0);
+
+  const applyThumbMetrics = React.useCallback((thumb: HTMLDivElement | null, axis: "vertical" | "horizontal", metrics: ThumbMetrics) => {
+    if (!thumb) {
+      return;
+    }
+
+    if (axis === "vertical") {
+      thumb.style.height = `${metrics.length}px`;
+      thumb.style.transform = `translate3d(0, ${TRACK_INSET + metrics.offset}px, 0)`;
+      return;
+    }
+
+    thumb.style.width = `${metrics.length}px`;
+    thumb.style.transform = `translate3d(${TRACK_INSET + metrics.offset}px, 0, 0)`;
+  }, []);
+
+  const updateVisibility = React.useCallback((axis: "vertical" | "horizontal", nextVisible: boolean) => {
+    if (axis === "vertical") {
+      if (verticalVisibilityRef.current === nextVisible) {
+        return;
+      }
+      verticalVisibilityRef.current = nextVisible;
+      setShowVertical(nextVisible);
+      return;
+    }
+
+    if (horizontalVisibilityRef.current === nextVisible) {
+      return;
+    }
+    horizontalVisibilityRef.current = nextVisible;
+    setShowHorizontal(nextVisible);
+  }, []);
+
+  const setVisibleIfChanged = React.useCallback((nextVisible: boolean) => {
+    if (visibleRef.current === nextVisible) {
+      return;
+    }
+    visibleRef.current = nextVisible;
+    setVisible(nextVisible);
+  }, []);
+
+  const scheduleHide = React.useCallback(() => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+    }
+    // Don't schedule hide if hovering over the thumb
+    if (isHoveringRef.current) {
+      return;
+    }
+    hideTimeoutRef.current = setTimeout(() => setVisibleIfChanged(false), hideDelayMs);
+  }, [hideDelayMs, setVisibleIfChanged]);
 
   const updateMetrics = React.useCallback(() => {
     const container = containerRef.current;
@@ -69,11 +145,10 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     const { scrollHeight, clientHeight, scrollTop, scrollWidth, clientWidth, scrollLeft } = container;
     const scrollbarHeight = scrollbarRef.current?.clientHeight ?? clientHeight;
     const scrollbarWidth = scrollbarRef.current?.clientWidth ?? clientWidth;
-    const trackInset = 8;
 
     let nextVertical: ThumbMetrics = EMPTY_THUMB;
     if (scrollHeight > clientHeight) {
-      const trackLength = Math.max(scrollbarHeight - trackInset * 2, 0);
+      const trackLength = Math.max(scrollbarHeight - TRACK_INSET * 2, 0);
       const rawThumb = (clientHeight / scrollHeight) * trackLength;
       const length = Math.max(minThumbSize, Math.min(trackLength, rawThumb));
       const maxOffset = Math.max(trackLength - length, 0);
@@ -81,11 +156,15 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       const offset = (scrollTop / maxScroll) * maxOffset;
       nextVertical = { length, offset };
     }
-    setVertical((prev) => (isSameThumbMetrics(prev, nextVertical) ? prev : nextVertical));
+    if (!isSameThumbMetrics(verticalMetricsRef.current, nextVertical)) {
+      verticalMetricsRef.current = nextVertical;
+      applyThumbMetrics(verticalThumbRef.current, "vertical", nextVertical);
+    }
+    updateVisibility("vertical", nextVertical.length > 0);
 
     let nextHorizontal: ThumbMetrics = EMPTY_THUMB;
     if (!disableHorizontal && scrollWidth > clientWidth) {
-      const trackLength = Math.max(scrollbarWidth - trackInset * 2, 0);
+      const trackLength = Math.max(scrollbarWidth - TRACK_INSET * 2, 0);
       const rawThumb = (clientWidth / scrollWidth) * trackLength;
       const length = Math.max(minThumbSize, Math.min(trackLength, rawThumb));
       const maxOffset = Math.max(trackLength - length, 0);
@@ -93,8 +172,19 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       const offset = (scrollLeft / maxScroll) * maxOffset;
       nextHorizontal = { length, offset };
     }
-    setHorizontal((prev) => (isSameThumbMetrics(prev, nextHorizontal) ? prev : nextHorizontal));
-  }, [containerRef, minThumbSize, disableHorizontal]);
+    if (!isSameThumbMetrics(horizontalMetricsRef.current, nextHorizontal)) {
+      horizontalMetricsRef.current = nextHorizontal;
+      applyThumbMetrics(horizontalThumbRef.current, "horizontal", nextHorizontal);
+    }
+    updateVisibility("horizontal", nextHorizontal.length > 0);
+
+    if (scrollHeight > lastContentHeightRef.current + METRIC_EPSILON) {
+      lastContentGrowthAtRef.current = Date.now();
+      setVisibleIfChanged(true);
+      scheduleHide();
+    }
+    lastContentHeightRef.current = scrollHeight;
+  }, [applyThumbMetrics, containerRef, disableHorizontal, minThumbSize, scheduleHide, setVisibleIfChanged, updateVisibility]);
 
   const scheduleMetricsUpdate = React.useCallback(() => {
     if (metricsFrameRef.current !== null) return;
@@ -131,17 +221,6 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     observedElementsRef.current = nextObserved;
   }, []);
 
-  const scheduleHide = React.useCallback(() => {
-    if (hideTimeoutRef.current) {
-      clearTimeout(hideTimeoutRef.current);
-    }
-    // Don't schedule hide if hovering over the thumb
-    if (isHoveringRef.current) {
-      return;
-    }
-    hideTimeoutRef.current = setTimeout(() => setVisible(false), hideDelayMs);
-  }, [hideDelayMs]);
-
   const markUserIntent = React.useCallback(() => {
     lastUserIntentAtRef.current = Date.now();
   }, []);
@@ -151,6 +230,7 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       cancelAnimationFrame(scrollAnimRef.current);
       scrollAnimRef.current = null;
     }
+    isTrackScrollAnimatingRef.current = false;
   }, []);
 
   const cancelScrollAnimations = React.useCallback(() => {
@@ -161,36 +241,67 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     }
   }, [cancelTrackScrollAnimation, containerRef]);
 
+  const flushDragScrollTarget = React.useCallback(() => {
+    dragFrameRef.current = null;
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const { top, left } = dragScrollTargetRef.current;
+    if (top !== null) {
+      container.scrollTop = top;
+    }
+    if (left !== null) {
+      container.scrollLeft = left;
+    }
+    updateMetrics();
+  }, [containerRef, updateMetrics]);
+
+  const scheduleDragScrollTarget = React.useCallback(() => {
+    if (dragFrameRef.current !== null) {
+      return;
+    }
+    dragFrameRef.current = requestAnimationFrame(flushDragScrollTarget);
+  }, [flushDragScrollTarget]);
+
   const handleScroll = React.useCallback(() => {
     if (frameRef.current) {
       cancelAnimationFrame(frameRef.current);
     }
     frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      if (isTrackScrollAnimatingRef.current) {
+        return;
+      }
       updateMetrics();
+      const hasRecentContentGrowth = Date.now() - lastContentGrowthAtRef.current <= CONTENT_GROWTH_VISIBILITY_WINDOW_MS;
       if (forceVisible) {
-        setVisible(true);
+        setVisibleIfChanged(true);
         return;
       }
-      if (suppressVisibility && !isDraggingRef.current) {
-        setVisible(false);
+      if (suppressVisibility && !isDraggingRef.current && !hasRecentContentGrowth) {
+        setVisibleIfChanged(false);
         return;
       }
-      if (userIntentOnly && !isDraggingRef.current) {
+      if (userIntentOnly && !isDraggingRef.current && !hasRecentContentGrowth) {
         const hasRecentUserIntent = Date.now() - lastUserIntentAtRef.current <= USER_SCROLL_INTENT_WINDOW_MS;
         if (!hasRecentUserIntent) {
-          setVisible(false);
+          setVisibleIfChanged(false);
           return;
         }
       }
-      setVisible(true);
-      scheduleHide();
+      setVisibleIfChanged(true);
+      if (isDraggingRef.current || hasRecentContentGrowth) {
+        scheduleHide();
+      }
     });
-  }, [forceVisible, scheduleHide, suppressVisibility, updateMetrics, userIntentOnly]);
+  }, [forceVisible, scheduleHide, setVisibleIfChanged, suppressVisibility, updateMetrics, userIntentOnly]);
 
   React.useEffect(() => {
     if (forceVisible) {
       updateMetrics();
-      setVisible(true);
+      setVisibleIfChanged(true);
       if (hideTimeoutRef.current) {
         clearTimeout(hideTimeoutRef.current);
         hideTimeoutRef.current = null;
@@ -201,14 +312,15 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     if (!isDraggingRef.current && !isHoveringRef.current) {
       scheduleHide();
     }
-  }, [forceVisible, scheduleHide, updateMetrics]);
+  }, [forceVisible, scheduleHide, setVisibleIfChanged, updateMetrics]);
 
   React.useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     updateMetrics();
-    setVisible(false);
+    lastContentHeightRef.current = container.scrollHeight;
+    setVisibleIfChanged(false);
 
     const onScroll = () => handleScroll();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -275,9 +387,10 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
       if (metricsFrameRef.current) cancelAnimationFrame(metricsFrameRef.current);
+      if (dragFrameRef.current) cancelAnimationFrame(dragFrameRef.current);
       cancelScrollAnimations();
     };
-  }, [cancelScrollAnimations, containerRef, handleScroll, markUserIntent, observeMutations, scheduleMetricsUpdate, syncObservedElements, updateMetrics, userIntentOnly]);
+  }, [cancelScrollAnimations, containerRef, handleScroll, markUserIntent, observeMutations, scheduleMetricsUpdate, setVisibleIfChanged, syncObservedElements, updateMetrics, userIntentOnly]);
 
   React.useEffect(() => {
     if (!suppressVisibility) {
@@ -286,12 +399,12 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     if (isDraggingRef.current) {
       return;
     }
-    setVisible(false);
+    setVisibleIfChanged(false);
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
       hideTimeoutRef.current = null;
     }
-  }, [suppressVisibility]);
+  }, [setVisibleIfChanged, suppressVisibility]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>, axis: "vertical" | "horizontal") => {
     const container = containerRef.current;
@@ -299,16 +412,29 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
 
     cancelScrollAnimations();
 
+    const scrollbarHeight = scrollbarRef.current?.clientHeight ?? container.clientHeight;
+    const scrollbarWidth = scrollbarRef.current?.clientWidth ?? container.clientWidth;
+    const metrics = axis === "vertical" ? verticalMetricsRef.current : horizontalMetricsRef.current;
+    const trackLength = axis === "vertical"
+      ? Math.max(scrollbarHeight - TRACK_INSET * 2, 0)
+      : Math.max(scrollbarWidth - TRACK_INSET * 2, 0);
+
     isDraggingRef.current = true;
+    dragScrollTargetRef.current.top = container.scrollTop;
+    dragScrollTargetRef.current.left = container.scrollLeft;
     dragStartRef.current = {
       pointerX: event.clientX,
       pointerY: event.clientY,
       scrollTop: container.scrollTop,
       scrollLeft: container.scrollLeft,
+      thumbTravel: Math.max(trackLength - metrics.length, 1),
+      maxScroll: axis === "vertical"
+        ? Math.max(container.scrollHeight - container.clientHeight, 1)
+        : Math.max(container.scrollWidth - container.clientWidth, 1),
     };
     dragAxisRef.current = axis;
     markUserIntent();
-    setVisible(true);
+    setVisibleIfChanged(true);
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -322,29 +448,31 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
 
     const axis = dragAxisRef.current;
     if (axis === "vertical") {
-      const { pointerY, scrollTop } = dragStartRef.current;
+      const { pointerY, scrollTop, thumbTravel, maxScroll } = dragStartRef.current;
       const delta = event.clientY - pointerY;
-      const scrollbarHeight = scrollbarRef.current?.clientHeight ?? container.clientHeight;
-      const trackLength = scrollbarHeight;
-      const thumbTravel = Math.max(trackLength - vertical.length, 1);
-      const maxScroll = Math.max(container.scrollHeight - container.clientHeight, 1);
       const scrollDelta = (delta / thumbTravel) * maxScroll;
-      container.scrollTop = scrollTop + scrollDelta;
+      dragScrollTargetRef.current.top = scrollTop + scrollDelta;
+      dragScrollTargetRef.current.left = null;
     } else if (axis === "horizontal") {
-      const { pointerX, scrollLeft } = dragStartRef.current;
+      const { pointerX, scrollLeft, thumbTravel, maxScroll } = dragStartRef.current;
       const delta = event.clientX - pointerX;
-      const scrollbarWidth = scrollbarRef.current?.clientWidth ?? container.clientWidth;
-      const trackLength = scrollbarWidth;
-      const thumbTravel = Math.max(trackLength - horizontal.length, 1);
-      const maxScroll = Math.max(container.scrollWidth - container.clientWidth, 1);
       const scrollDelta = (delta / thumbTravel) * maxScroll;
-      container.scrollLeft = scrollLeft + scrollDelta;
+      dragScrollTargetRef.current.left = scrollLeft + scrollDelta;
+      dragScrollTargetRef.current.top = null;
     }
+    scheduleDragScrollTarget();
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
+    if (dragFrameRef.current !== null) {
+      cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    flushDragScrollTarget();
+    dragScrollTargetRef.current.top = null;
+    dragScrollTargetRef.current.left = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
     scheduleHide();
   };
@@ -370,8 +498,8 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       clearTimeout(hideTimeoutRef.current);
       hideTimeoutRef.current = null;
     }
-    setVisible(true);
-  }, []);
+    setVisibleIfChanged(true);
+  }, [setVisibleIfChanged]);
 
   const handleTrackMouseLeave = React.useCallback(() => {
     isHoveringRef.current = false;
@@ -383,13 +511,13 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     if (!container) return;
 
     markUserIntent();
-    setVisible(true);
+    setVisibleIfChanged(true);
     scheduleHide();
     cancelTrackScrollAnimation();
 
     event.preventDefault();
     smoothWheelScrollElement(container, event);
-  }, [cancelTrackScrollAnimation, containerRef, markUserIntent, scheduleHide]);
+  }, [cancelTrackScrollAnimation, containerRef, markUserIntent, scheduleHide, setVisibleIfChanged]);
 
   const handleTrackPointerDown = (event: React.PointerEvent<HTMLDivElement>, axis: "vertical" | "horizontal") => {
     if (event.target !== event.currentTarget) {
@@ -402,45 +530,77 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
 
     cancelScrollAnimations();
     markUserIntent();
-    setVisible(true);
+    setVisibleIfChanged(true);
 
     const rect = track.getBoundingClientRect();
     const maxScroll = axis === "vertical"
       ? container.scrollHeight - container.clientHeight
       : container.scrollWidth - container.clientWidth;
+    const metrics = axis === "vertical" ? verticalMetricsRef.current : horizontalMetricsRef.current;
+    const laneLength = axis === "vertical"
+      ? Math.max(rect.height - TRACK_INSET * 2, 0)
+      : Math.max(rect.width - TRACK_INSET * 2, 0);
+    const maxOffset = Math.max(laneLength - metrics.length, 0);
 
     let targetScroll = 0;
     if (axis === "vertical") {
       const clickY = event.clientY - rect.top;
-      const trackHeight = rect.height;
-      const pct = Math.max(0, Math.min(1, clickY / trackHeight));
+      const laneClick = clamp(clickY - TRACK_INSET, 0, laneLength);
+      const targetOffset = clamp(laneClick - metrics.length / 2, 0, maxOffset);
+      const pct = maxOffset > 0 ? targetOffset / maxOffset : 0;
       targetScroll = pct * maxScroll;
-      animateElementScrollTo(container, targetScroll, "vertical", 220, scrollAnimRef);
+      isTrackScrollAnimatingRef.current = true;
+      animateElementScrollToRatio(
+        container,
+        pct,
+        "vertical",
+        getTrackScrollDuration(Math.abs(targetScroll - container.scrollTop), container.clientHeight),
+        scrollAnimRef,
+        updateMetrics,
+        () => {
+          isTrackScrollAnimatingRef.current = false;
+          updateMetrics();
+        },
+      );
     } else {
       const clickX = event.clientX - rect.left;
-      const trackWidth = rect.width;
-      const pct = Math.max(0, Math.min(1, clickX / trackWidth));
+      const laneClick = clamp(clickX - TRACK_INSET, 0, laneLength);
+      const targetOffset = clamp(laneClick - metrics.length / 2, 0, maxOffset);
+      const pct = maxOffset > 0 ? targetOffset / maxOffset : 0;
       targetScroll = pct * maxScroll;
-      animateElementScrollTo(container, targetScroll, "horizontal", 220, scrollAnimRef);
+      isTrackScrollAnimatingRef.current = true;
+      animateElementScrollToRatio(
+        container,
+        pct,
+        "horizontal",
+        getTrackScrollDuration(Math.abs(targetScroll - container.scrollLeft), container.clientWidth),
+        scrollAnimRef,
+        updateMetrics,
+        () => {
+          isTrackScrollAnimatingRef.current = false;
+          updateMetrics();
+        },
+      );
     }
 
     isDraggingRef.current = true;
+    const trackLength = axis === "vertical"
+      ? Math.max(rect.height - TRACK_INSET * 2, 0)
+      : Math.max(rect.width - TRACK_INSET * 2, 0);
     dragStartRef.current = {
       pointerX: event.clientX,
       pointerY: event.clientY,
       scrollTop: axis === "vertical" ? targetScroll : container.scrollTop,
       scrollLeft: axis === "horizontal" ? targetScroll : container.scrollLeft,
+      thumbTravel: Math.max(trackLength - metrics.length, 1),
+      maxScroll: Math.max(maxScroll, 1),
     };
     dragAxisRef.current = axis;
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     track.setPointerCapture(event.pointerId);
   };
 
-  const showVertical = vertical.length > 0;
-  const showHorizontal = horizontal.length > 0;
   if (!showVertical && !showHorizontal) return null;
-
-  const trackInset = 8;
 
   return (
     <div
@@ -472,18 +632,20 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
           <div
             className="overlay-scrollbar__thumb-wrapper"
             data-overlay-scrollbar-thumb="vertical"
-            style={{
-              position: "absolute",
-              height: `${vertical.length}px`,
-              top: `${trackInset + vertical.offset}px`,
-              right: 0,
-              width: "16px",
-              pointerEvents: "auto",
-              cursor: "pointer",
-            }}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              handlePointerDown(e, "vertical");
+              style={{
+                position: "absolute",
+                height: `${verticalMetricsRef.current.length}px`,
+                transform: `translate3d(0, ${TRACK_INSET + verticalMetricsRef.current.offset}px, 0)`,
+                right: 0,
+                width: "16px",
+                pointerEvents: "auto",
+                cursor: "pointer",
+                willChange: "transform",
+              }}
+              ref={verticalThumbRef}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                handlePointerDown(e, "vertical");
             }}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -530,18 +692,20 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
           <div
             className="overlay-scrollbar__thumb-wrapper"
             data-overlay-scrollbar-thumb="horizontal"
-            style={{
-              position: "absolute",
-              width: `${horizontal.length}px`,
-              left: `${trackInset + horizontal.offset}px`,
-              bottom: 0,
-              height: "16px",
-              pointerEvents: "auto",
-              cursor: "pointer",
-            }}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              handlePointerDown(e, "horizontal");
+              style={{
+                position: "absolute",
+                width: `${horizontalMetricsRef.current.length}px`,
+                transform: `translate3d(${TRACK_INSET + horizontalMetricsRef.current.offset}px, 0, 0)`,
+                bottom: 0,
+                height: "16px",
+                pointerEvents: "auto",
+                cursor: "pointer",
+                willChange: "transform",
+              }}
+              ref={horizontalThumbRef}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                handlePointerDown(e, "horizontal");
             }}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}

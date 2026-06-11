@@ -3,7 +3,6 @@ import React from 'react';
 import { MessageFreshnessDetector } from '@/lib/messageFreshness';
 import { createScrollSpy } from '@/components/chat/lib/scroll/scrollSpy';
 import { cancelOverlayScrollbarScroll } from '@/components/ui/overlay-scrollbar-events';
-import { animateElementScrollTo } from '@/components/ui/scroll-animation';
 import { getViewportSessionMemory, useViewportStore, type SessionMemoryState } from '@/sync/viewport-store';
 
 export type AutoFollowState = 'following' | 'released';
@@ -49,12 +48,14 @@ const BOTTOM_SPACER_MOBILE_PX = 40;
 const PROGRAMMATIC_WRITE_WINDOW_MS = 200;
 const SAVE_DEBOUNCE_MS = 150;
 const LERP = 0.18;
+const SMOOTH_HANDOFF_LERP = 0.1;
 const SETTLE_EPSILON = 0.5;
 const SETTLE_FRAMES = 4;
 const TOUCH_FINGER_DOWN_THRESHOLD = 2;
 const SETTLE_BURST_DURATION_MS = 280;
 const REPIN_GRACE_AFTER_RELEASE_MS = 1200;
-const BOTTOM_SCROLL_DURATION_MS = 220;
+const BOTTOM_SCROLL_FALLBACK_MS = 500;
+const SMOOTH_HANDOFF_DURATION_MS = 180;
 
 // The bottom of the chat has an empty spacer (10vh on desktop, 40px on mobile)
 // — its height is exactly how far above scrollHeight the user can be while still
@@ -135,8 +136,10 @@ export const useChatAutoFollow = ({
     const lastSessionIdRef = React.useRef<string | null>(null);
     const programmaticWriteUntilRef = React.useRef(0);
     const followRafRef = React.useRef<number | null>(null);
-    const bottomScrollRafRef = React.useRef<number | null>(null);
     const bottomScrollAnimatingRef = React.useRef(false);
+    const bottomScrollTimeoutRef = React.useRef<number | null>(null);
+    const bottomScrollCleanupRef = React.useRef<(() => void) | null>(null);
+    const smoothHandoffUntilRef = React.useRef(0);
     const settledFramesRef = React.useRef(0);
     const lastScrollTopRef = React.useRef(0);
     const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -188,13 +191,19 @@ export const useChatAutoFollow = ({
     }, []);
 
     const stopBottomScrollAnimation = React.useCallback(() => {
-        if (bottomScrollRafRef.current !== null && typeof window !== 'undefined') {
-            window.cancelAnimationFrame(bottomScrollRafRef.current);
+        if (bottomScrollTimeoutRef.current !== null && typeof window !== 'undefined') {
+            window.clearTimeout(bottomScrollTimeoutRef.current);
         }
-        bottomScrollRafRef.current = null;
+        bottomScrollTimeoutRef.current = null;
+        bottomScrollCleanupRef.current?.();
+        bottomScrollCleanupRef.current = null;
+        const container = scrollRef.current;
+        if (bottomScrollAnimatingRef.current && container) {
+            container.scrollTo({ top: container.scrollTop, behavior: 'auto' });
+        }
         bottomScrollAnimatingRef.current = false;
         setIsScrollToBottomAnimating(false);
-    }, []);
+    }, [scrollRef]);
 
     const tickFollow = React.useCallback(() => {
         followRafRef.current = null;
@@ -228,7 +237,9 @@ export const useChatAutoFollow = ({
         }
 
         settledFramesRef.current = 0;
-        const next = current + delta * LERP;
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const lerp = now < smoothHandoffUntilRef.current ? SMOOTH_HANDOFF_LERP : LERP;
+        const next = current + delta * lerp;
         markProgrammaticWrite();
         container.scrollTop = next;
         lastScrollTopRef.current = container.scrollTop;
@@ -317,30 +328,48 @@ export const useChatAutoFollow = ({
             stopFollowLoop();
             stopSettleBurst();
             stopBottomScrollAnimation();
+            const target = Math.max(0, container.scrollHeight - container.clientHeight);
+            if (Math.abs(container.scrollTop - target) <= SETTLE_EPSILON) {
+                writeScrollTopInstant(target);
+                startFollowLoop();
+                return;
+            }
             bottomScrollAnimatingRef.current = true;
             setIsScrollToBottomAnimating(true);
-            animateElementScrollTo(
-                container,
-                Math.max(0, container.scrollHeight - container.clientHeight),
-                'vertical',
-                BOTTOM_SCROLL_DURATION_MS,
-                bottomScrollRafRef,
-                () => {
-                    markProgrammaticWrite();
-                    lastScrollTopRef.current = container.scrollTop;
-                },
-                () => {
-                    bottomScrollAnimatingRef.current = false;
-                    setIsScrollToBottomAnimating(false);
-                    startSettleBurst();
-                },
-            );
+
+            let finished = false;
+            const finish = () => {
+                if (finished) return;
+                finished = true;
+                if (bottomScrollTimeoutRef.current !== null && typeof window !== 'undefined') {
+                    window.clearTimeout(bottomScrollTimeoutRef.current);
+                }
+                bottomScrollTimeoutRef.current = null;
+                bottomScrollCleanupRef.current?.();
+                bottomScrollCleanupRef.current = null;
+                bottomScrollAnimatingRef.current = false;
+                setIsScrollToBottomAnimating(false);
+                smoothHandoffUntilRef.current = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + SMOOTH_HANDOFF_DURATION_MS;
+                markProgrammaticWrite();
+                lastScrollTopRef.current = container.scrollTop;
+                startFollowLoop();
+            };
+
+            const handleScrollEnd = () => {
+                finish();
+            };
+            container.addEventListener('scrollend', handleScrollEnd);
+            bottomScrollCleanupRef.current = () => {
+                container.removeEventListener('scrollend', handleScrollEnd);
+            };
+            bottomScrollTimeoutRef.current = window.setTimeout(finish, BOTTOM_SCROLL_FALLBACK_MS);
+            container.scrollTo({ top: target, behavior: 'smooth' });
             return;
         }
         const target = Math.max(0, container.scrollHeight - container.clientHeight);
         writeScrollTopInstant(target);
         startSettleBurst();
-    }, [markProgrammaticWrite, setStateValue, startSettleBurst, stopBottomScrollAnimation, stopFollowLoop, stopSettleBurst, writeScrollTopInstant]);
+    }, [markProgrammaticWrite, setStateValue, startFollowLoop, startSettleBurst, stopBottomScrollAnimation, stopFollowLoop, stopSettleBurst, writeScrollTopInstant]);
 
     const flushSave = React.useCallback(() => {
         if (saveTimerRef.current !== null) {

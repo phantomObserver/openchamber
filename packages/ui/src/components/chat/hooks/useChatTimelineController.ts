@@ -383,6 +383,18 @@ export const useChatTimelineController = ({
         return messageListRef.current?.restoreViewportAnchor(anchor) ?? false;
     }, [messageListRef]);
 
+    const snapshotPrependScroll = React.useCallback(() => {
+        const container = scrollRef.current;
+        if (!container) {
+            return;
+        }
+        prePrependScrollRef.current = {
+            height: container.scrollHeight,
+            top: container.scrollTop,
+            anchor: captureViewportAnchor(),
+        };
+    }, [captureViewportAnchor, scrollRef]);
+
     React.useLayoutEffect(() => {
         const snap = prePrependScrollRef.current;
         const container = scrollRef.current;
@@ -409,14 +421,8 @@ export const useChatTimelineController = ({
         }
 
         beginHistoryInteraction();
-        const container = scrollRef.current;
-        if (container) {
-            prePrependScrollRef.current = {
-                height: container.scrollHeight,
-                top: container.scrollTop,
-                anchor: captureViewportAnchor(),
-            };
-        }
+        cancelOverlayScrollbarScroll(scrollRef.current);
+        snapshotPrependScroll();
 
         setPendingRevealWork(true);
         setTurnStart((current) => {
@@ -431,7 +437,7 @@ export const useChatTimelineController = ({
             setPendingRevealWork(false);
             settleHistoryInteraction();
         }
-    }, [beginHistoryInteraction, captureViewportAnchor, scrollRef, settleHistoryInteraction, waitForNextRenderCommit]);
+    }, [beginHistoryInteraction, scrollRef, settleHistoryInteraction, snapshotPrependScroll, waitForNextRenderCommit]);
 
     const fetchOlderHistory = React.useCallback(async (input: {
         preserveViewport: boolean;
@@ -452,11 +458,8 @@ export const useChatTimelineController = ({
         // Store scroll snapshot BEFORE the fetch so useLayoutEffect can
         // compensate synchronously when React commits the new messages.
         if (input.preserveViewport && container) {
-            prePrependScrollRef.current = {
-                height: container.scrollHeight,
-                top: container.scrollTop,
-                anchor: captureViewportAnchor(),
-            };
+            cancelOverlayScrollbarScroll(container);
+            snapshotPrependScroll();
         }
 
         beginHistoryInteraction();
@@ -511,7 +514,7 @@ export const useChatTimelineController = ({
             setIsLoadingOlder(false);
             settleHistoryInteraction();
         }
-    }, [beginHistoryInteraction, captureViewportAnchor, loadMoreMessages, scrollRef, settleHistoryInteraction, waitForNextRenderCommitOrTimeout]);
+    }, [beginHistoryInteraction, loadMoreMessages, scrollRef, settleHistoryInteraction, snapshotPrependScroll, waitForNextRenderCommitOrTimeout]);
 
     const loadEarlier = React.useCallback(async (options?: { userInitiated?: boolean }) => {
         beginHistoryInteraction();
@@ -727,6 +730,7 @@ export const useChatTimelineController = ({
 
         // 1. Reveal any locally buffered turns first
         if (turnStartRef.current > 0) {
+            snapshotPrependScroll();
             setTurnStart(0);
             await waitForNextRenderCommitOrTimeout();
             madeProgress = true;
@@ -747,6 +751,7 @@ export const useChatTimelineController = ({
             remainingAttempts -= 1;
 
             if (turnStartRef.current > 0) {
+                snapshotPrependScroll();
                 setTurnStart(0);
                 await waitForNextRenderCommitOrTimeout();
                 madeProgress = true;
@@ -759,12 +764,10 @@ export const useChatTimelineController = ({
 
             const beforeCount = messagesRef.current.length;
 
-            // Trigger load of next batch
-            await loadMoreMessages(sessionIdRef.current, 'up');
-            await waitForNextRenderCommitOrTimeout();
+            const didLoad = await fetchOlderHistory({ preserveViewport: true });
 
             const afterCount = messagesRef.current.length;
-            if (afterCount > beforeCount) {
+            if (didLoad || afterCount > beforeCount) {
                 madeProgress = true;
                 consecutiveNoGrowth = 0;
             } else {
@@ -777,8 +780,7 @@ export const useChatTimelineController = ({
                     }
                     // Wait 500ms and try one last time
                     await new Promise((resolve) => window.setTimeout(resolve, 500));
-                    await loadMoreMessages(sessionIdRef.current, 'up');
-                    await waitForNextRenderCommitOrTimeout();
+                    await fetchOlderHistory({ preserveViewport: true });
                     if (messagesRef.current.length <= afterCount) {
                         break; // Definitely done or failed
                     }
@@ -788,6 +790,7 @@ export const useChatTimelineController = ({
 
         // Double check turnStart is 0
         if (turnStartRef.current > 0) {
+            snapshotPrependScroll();
             setTurnStart(0);
             await waitForNextRenderCommitOrTimeout();
             madeProgress = true;
@@ -809,7 +812,7 @@ export const useChatTimelineController = ({
         }
 
         return madeProgress;
-    }, [loadMoreMessages, releaseAutoFollow, scrollRef, scrollToMessage, waitForNextRenderCommitOrTimeout]);
+    }, [fetchOlderHistory, releaseAutoFollow, scrollRef, scrollToMessage, snapshotPrependScroll, waitForNextRenderCommitOrTimeout]);
 
     const resumeToBottom = React.useCallback(async () => {
         const nextStart = getInitialTurnStart(turnModelRef.current.turnCount);

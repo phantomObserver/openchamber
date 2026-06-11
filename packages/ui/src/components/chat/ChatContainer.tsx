@@ -24,7 +24,7 @@ import { useDeviceInfo } from '@/lib/device';
 import { Button } from '@/components/ui/button';
 import { OverlayScrollbar } from '@/components/ui/OverlayScrollbar';
 import { cancelOverlayScrollbarScroll } from '@/components/ui/overlay-scrollbar-events';
-import { smoothWheelScrollElement } from '@/components/ui/smoothWheelScroll';
+import { cancelSmoothWheelScroll, smoothWheelScrollElement } from '@/components/ui/smoothWheelScroll';
 import { Icon } from "@/components/icon/Icon";
 import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
@@ -679,7 +679,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         scrollToMessage: timelineController.scrollToMessage,
         resumeToBottom: timelineController.resumeToBottom,
     });
-    const { scrollToMessageId: navScrollToMessageId } = navigation;
+    const { scrollToMessageId: navScrollToMessageId, resumeToLatest } = navigation;
 
     const handleHistoryScroll = timelineController.handleHistoryScroll;
 
@@ -735,6 +735,21 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         setIsFullHistoryLoading(false);
         setActiveNavigationDirection(null);
     }, []);
+
+    const cancelAllNavigation = React.useCallback(() => {
+        // Cancel any active jump scroll guard and its animation
+        clearJumpScrollGuard();
+        // Cancel any full history load operation
+        clearFullHistoryNavigation();
+        // Cancel overlay scrollbar track / thumb animations
+        const container = scrollRef.current;
+        if (container) {
+            cancelOverlayScrollbarScroll(container);
+            cancelSmoothWheelScroll(container);
+        }
+        // Release auto-follow and stop bottom scroll animation
+        releaseAutoFollow();
+    }, [clearJumpScrollGuard, clearFullHistoryNavigation, releaseAutoFollow, scrollRef]);
 
     const beginJumpScrollGuard = React.useCallback(() => {
         clearJumpScrollGuard(false);
@@ -898,29 +913,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
     const handleJumpToNextMessage = React.useCallback(() => {
         const target = getJumpTarget('next');
         if (!target.targetId) {
-            if (jumpNavigationBusyRef.current) {
-                return;
-            }
-
-            const container = scrollRef.current;
-            if (!container) {
-                return;
-            }
-
-            const bottomScrollTop = Math.max(container.scrollHeight - container.clientHeight, 0);
-            if (Math.abs(container.scrollTop - bottomScrollTop) < 1) {
-                return;
-            }
-
-            setActiveNavigationDirection('down');
-            jumpNavigationBusyRef.current = true;
-            setIsJumpNavigationBusy(true);
-            beginJumpScrollGuard();
-            container.scrollTo({ top: bottomScrollTop, behavior: 'smooth' });
+            cancelAllNavigation();
+            resumeToLatest();
             return;
         }
         void handleJumpToUserMessage('next');
-    }, [beginJumpScrollGuard, getJumpTarget, handleJumpToUserMessage, scrollRef]);
+    }, [cancelAllNavigation, getJumpTarget, handleJumpToUserMessage, resumeToLatest]);
 
     const handleLoadAllHistoryAndScrollToTop = React.useCallback(async () => {
         if (fullHistoryNavigationBusyRef.current || jumpNavigationBusyRef.current) {
@@ -998,6 +996,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             }
 
             event.preventDefault();
+            // Keyboard always overrides any ongoing button navigation
+            cancelAllNavigation();
             const offset = event.key === 'ArrowUp' ? -1 : 1;
             void navigation.scrollByTurnOffset(offset, { resumePastEnd: false });
         };
@@ -1006,7 +1006,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         return () => {
             window.removeEventListener('keydown', handleChatTurnKeyDown);
         };
-    }, [currentSessionId, isDesktopExpandedInput, navigation, scrollRef]);
+    }, [cancelAllNavigation, currentSessionId, isDesktopExpandedInput, navigation, scrollRef]);
 
     React.useLayoutEffect(() => {
         const container = scrollRef.current;
