@@ -12,6 +12,7 @@ export const usePressHoldAction = ({
     onHold: () => void;
 }) => {
     const holdTimerRef = React.useRef<number | null>(null);
+    const shakeTimerRef = React.useRef<number | null>(null);
     const holdTriggeredRef = React.useRef(false);
     const onClickRef = React.useRef(onClick);
     const onHoldRef = React.useRef(onHold);
@@ -26,11 +27,20 @@ export const usePressHoldAction = ({
     }, [onHold]);
 
     const clearHoldTimer = React.useCallback(() => {
-        if (holdTimerRef.current === null || typeof window === 'undefined') {
+        if (typeof window === 'undefined') {
             return;
         }
-        window.clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
+
+        if (holdTimerRef.current !== null) {
+            window.clearTimeout(holdTimerRef.current);
+            holdTimerRef.current = null;
+        }
+
+        if (shakeTimerRef.current !== null) {
+            window.clearTimeout(shakeTimerRef.current);
+            shakeTimerRef.current = null;
+            setIsShaking(false);
+        }
     }, []);
 
     const handlePointerDown = React.useCallback(() => {
@@ -46,7 +56,8 @@ export const usePressHoldAction = ({
             setIsShaking(true);
 
             // Wait 300ms for the shake animation to complete before calling onHold
-            window.setTimeout(() => {
+            shakeTimerRef.current = window.setTimeout(() => {
+                shakeTimerRef.current = null;
                 setIsShaking(false);
                 onHoldRef.current();
             }, 300);
