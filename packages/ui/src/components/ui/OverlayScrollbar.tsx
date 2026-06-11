@@ -77,7 +77,8 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     scrollLeft: number;
     thumbTravel: number;
     maxScroll: number;
-  }>({ pointerX: 0, pointerY: 0, scrollTop: 0, scrollLeft: 0, thumbTravel: 1, maxScroll: 1 });
+    thumbLength: number;
+  }>({ pointerX: 0, pointerY: 0, scrollTop: 0, scrollLeft: 0, thumbTravel: 1, maxScroll: 1, thumbLength: 0 });
   const dragAxisRef = React.useRef<"vertical" | "horizontal" | null>(null);
   const dragScrollTargetRef = React.useRef<{ top: number | null; left: number | null }>({ top: null, left: null });
   const dragFrameRef = React.useRef<number | null>(null);
@@ -196,6 +197,7 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
   }, [applyThumbMetrics, containerRef, disableHorizontal, minThumbSize, pinVerticalToBottom, scheduleHide, setVisibleIfChanged, updateVisibility]);
 
   const scheduleMetricsUpdate = React.useCallback(() => {
+    if (isDraggingRef.current) return;
     if (metricsFrameRef.current !== null) return;
     metricsFrameRef.current = requestAnimationFrame(() => {
       metricsFrameRef.current = null;
@@ -273,8 +275,30 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     if (left !== null) {
       container.scrollLeft = left;
     }
+    if (isDraggingRef.current) {
+      const axis = dragAxisRef.current;
+      const { thumbLength, thumbTravel, maxScroll } = dragStartRef.current;
+      if (axis === "vertical") {
+        const nextOffset = maxScroll > 0
+          ? (container.scrollTop / maxScroll) * thumbTravel
+          : 0;
+        const nextMetrics = { length: thumbLength, offset: nextOffset };
+        verticalMetricsRef.current = nextMetrics;
+        applyThumbMetrics(verticalThumbRef.current, "vertical", nextMetrics);
+      } else if (axis === "horizontal") {
+        const nextOffset = maxScroll > 0
+          ? (container.scrollLeft / maxScroll) * thumbTravel
+          : 0;
+        const nextMetrics = { length: thumbLength, offset: nextOffset };
+        horizontalMetricsRef.current = nextMetrics;
+        applyThumbMetrics(horizontalThumbRef.current, "horizontal", nextMetrics);
+      }
+      updateVisibility("vertical", verticalMetricsRef.current.length > 0);
+      updateVisibility("horizontal", horizontalMetricsRef.current.length > 0);
+      return;
+    }
     updateMetrics();
-  }, [containerRef, updateMetrics]);
+  }, [applyThumbMetrics, containerRef, updateMetrics, updateVisibility]);
 
   const scheduleDragScrollTarget = React.useCallback(() => {
     if (dragFrameRef.current !== null) {
@@ -290,6 +314,10 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null;
       if (isTrackScrollAnimatingRef.current) {
+        return;
+      }
+      if (isDraggingRef.current) {
+        setVisibleIfChanged(true);
         return;
       }
       updateMetrics();
@@ -365,6 +393,9 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     const resizeObserver =
       typeof ResizeObserver !== "undefined"
         ? new ResizeObserver(() => {
+            if (isDraggingRef.current) {
+              return;
+            }
             scheduleMetricsUpdate();
           })
         : null;
@@ -373,14 +404,27 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     const mutationObserver =
       observeMutations && typeof MutationObserver !== "undefined"
         ? new MutationObserver(() => {
+            if (isDraggingRef.current) {
+              return;
+            }
             syncObservedElements(container, resizeObserver);
             scheduleMetricsUpdate();
           })
         : null;
     mutationObserver?.observe(container, { childList: true });
 
-    const onInput = () => scheduleMetricsUpdate();
-    const onLoad = () => scheduleMetricsUpdate();
+    const onInput = () => {
+      if (isDraggingRef.current) {
+        return;
+      }
+      scheduleMetricsUpdate();
+    };
+    const onLoad = () => {
+      if (isDraggingRef.current) {
+        return;
+      }
+      scheduleMetricsUpdate();
+    };
     container.addEventListener("input", onInput, true);
     container.addEventListener("load", onLoad, true);
 
@@ -447,6 +491,7 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       maxScroll: axis === "vertical"
         ? Math.max(container.scrollHeight - container.clientHeight, 1)
         : Math.max(container.scrollWidth - container.clientWidth, 1),
+      thumbLength: metrics.length,
     };
     dragAxisRef.current = axis;
     markUserIntent();
@@ -610,6 +655,7 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
       scrollLeft: axis === "horizontal" ? targetScroll : container.scrollLeft,
       thumbTravel: Math.max(trackLength - metrics.length, 1),
       maxScroll: Math.max(maxScroll, 1),
+      thumbLength: metrics.length,
     };
     dragAxisRef.current = axis;
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
