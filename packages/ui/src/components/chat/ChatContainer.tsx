@@ -86,6 +86,14 @@ const CHAT_NAVIGATION_IGNORED_TARGET_SELECTOR = [
     '[data-radix-popper-content-wrapper]',
 ].join(',');
 type SessionMessageRecord = { info: Message; parts: Part[] };
+type ChatNavigationMode =
+    | 'idle'
+    | 'jumpingUp'
+    | 'jumpingDown'
+    | 'loadingAllToTop'
+    | 'settlingAtTop'
+    | 'atTopAfterLongPress'
+    | 'resumingToBottom';
 
 const isHTMLElement = (target: EventTarget | null): target is HTMLElement => {
     return target instanceof HTMLElement;
@@ -686,11 +694,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
 
     const jumpScrollActiveRef = React.useRef(false);
     const [isJumpScrollActive, setIsJumpScrollActive] = React.useState(false);
-    const jumpNavigationBusyRef = React.useRef(false);
-    const [isJumpNavigationBusy, setIsJumpNavigationBusy] = React.useState(false);
-    const [activeNavigationDirection, setActiveNavigationDirection] = React.useState<'up' | 'down' | null>(null);
-    const fullHistoryNavigationBusyRef = React.useRef(false);
-    const [isFullHistoryNavigationBusy, setIsFullHistoryNavigationBusy] = React.useState(false);
+    const [navigationMode, setNavigationMode] = React.useState<ChatNavigationMode>('idle');
+    const navigationModeRef = React.useRef<ChatNavigationMode>('idle');
+    const navigationRequestIdRef = React.useRef(0);
     const [isFullHistoryLoading, setIsFullHistoryLoading] = React.useState(false);
     const topButtonRevealFromUserIntentRef = React.useRef(false);
     const fullHistoryLoadingTooltipTimeoutRef = React.useRef<number | null>(null);
@@ -709,22 +715,52 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         canLoadEarlier: timelineController.historySignals.canLoadEarlier,
     });
 
-    const finishJumpNavigation = React.useCallback(() => {
-        jumpNavigationBusyRef.current = false;
-        setIsJumpNavigationBusy(false);
-        setActiveNavigationDirection(null);
+    const beginNavigationMode = React.useCallback((mode: ChatNavigationMode) => {
+        const requestId = navigationRequestIdRef.current + 1;
+        navigationRequestIdRef.current = requestId;
+        navigationModeRef.current = mode;
+        setNavigationMode(mode);
+        return requestId;
     }, []);
 
-    const clearJumpScrollGuard = React.useCallback((resetBusy = true) => {
+    const setNavigationModeIfCurrent = React.useCallback((requestId: number, mode: ChatNavigationMode) => {
+        if (navigationRequestIdRef.current !== requestId) {
+            return false;
+        }
+
+        navigationModeRef.current = mode;
+        setNavigationMode(mode);
+        return true;
+    }, []);
+
+    const invalidateNavigationMode = React.useCallback((mode: ChatNavigationMode = 'idle') => {
+        navigationRequestIdRef.current += 1;
+        navigationModeRef.current = mode;
+        setNavigationMode(mode);
+        return navigationRequestIdRef.current;
+    }, []);
+
+    const isJumpNavigationBusy = navigationMode === 'jumpingUp' || navigationMode === 'jumpingDown';
+    const isFullHistoryNavigationBusy = navigationMode === 'loadingAllToTop' || navigationMode === 'settlingAtTop';
+    const suppressTopButtonDuringSettle = navigationMode === 'settlingAtTop';
+    const keepTopButtonHiddenAfterLongPress = navigationMode === 'atTopAfterLongPress';
+    const suppressBottomButtonDuringResume = navigationMode === 'resumingToBottom';
+    const activeNavigationDirection: 'up' | 'down' | null =
+        navigationMode === 'jumpingUp'
+            || navigationMode === 'loadingAllToTop'
+            || navigationMode === 'settlingAtTop'
+            ? 'up'
+            : navigationMode === 'jumpingDown' || navigationMode === 'resumingToBottom'
+                ? 'down'
+                : null;
+
+    const clearJumpScrollGuard = React.useCallback(() => {
         const guard = jumpScrollGuardRef.current;
         jumpScrollGuardRef.current = null;
         jumpScrollActiveRef.current = false;
         setIsJumpScrollActive(false);
         guard?.clear();
-        if (resetBusy) {
-            finishJumpNavigation();
-        }
-    }, [finishJumpNavigation]);
+    }, []);
 
     const clearFullHistoryNavigation = React.useCallback(() => {
         if (fullHistoryLoadingTooltipTimeoutRef.current !== null) {
@@ -735,14 +771,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             window.clearTimeout(fullHistoryLoadTimeoutRef.current);
             fullHistoryLoadTimeoutRef.current = null;
         }
-        fullHistoryNavigationBusyRef.current = false;
-        setIsFullHistoryNavigationBusy(false);
         setIsFullHistoryLoading(false);
-        setActiveNavigationDirection(null);
     }, []);
 
-    const [suppressTopButtonDuringSettle, setSuppressTopButtonDuringSettle] = React.useState(false);
-    const [keepTopButtonHiddenAfterLongPress, setKeepTopButtonHiddenAfterLongPress] = React.useState(false);
     const [keepOverlayScrollbarVisible, setKeepOverlayScrollbarVisible] = React.useState(false);
     const beginOverlayScrollbarLinger = React.useCallback(() => {
         if (overlayScrollbarLingerTimeoutRef.current !== null) {
@@ -761,31 +792,37 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             window.clearTimeout(topLongPressScrollSettleTimeoutRef.current);
             topLongPressScrollSettleTimeoutRef.current = null;
         }
-        setSuppressTopButtonDuringSettle(false);
     }, []);
-    const finishTopButtonSettleSuppression = React.useCallback(() => {
+    const finishTopButtonSettleSuppression = React.useCallback((requestId: number) => {
         clearTopButtonSettleSuppression();
-        setKeepTopButtonHiddenAfterLongPress(true);
+        setNavigationModeIfCurrent(requestId, 'atTopAfterLongPress');
         beginOverlayScrollbarLinger();
-    }, [beginOverlayScrollbarLinger, clearTopButtonSettleSuppression]);
-    const beginTopButtonSettleSuppression = React.useCallback(() => {
+    }, [beginOverlayScrollbarLinger, clearTopButtonSettleSuppression, setNavigationModeIfCurrent]);
+    const beginTopButtonSettleSuppression = React.useCallback((requestId: number) => {
         clearTopButtonSettleSuppression();
-        setKeepTopButtonHiddenAfterLongPress(false);
-        setSuppressTopButtonDuringSettle(true);
+        if (!setNavigationModeIfCurrent(requestId, 'settlingAtTop')) {
+            return;
+        }
         if (typeof window !== 'undefined') {
             topLongPressScrollSettleTimeoutRef.current = window.setTimeout(() => {
                 topLongPressScrollSettleTimeoutRef.current = null;
+                if (navigationRequestIdRef.current !== requestId) {
+                    return;
+                }
                 const container = scrollRef.current;
                 if (container && container.scrollTop <= 1) {
-                    finishTopButtonSettleSuppression();
+                    finishTopButtonSettleSuppression(requestId);
                 }
             }, JUMP_SCROLL_GUARD_TIMEOUT_MS);
         }
-    }, [clearTopButtonSettleSuppression, finishTopButtonSettleSuppression, scrollRef]);
-    const [suppressBottomButtonDuringResume, setSuppressBottomButtonDuringResume] = React.useState(false);
+    }, [clearTopButtonSettleSuppression, finishTopButtonSettleSuppression, scrollRef, setNavigationModeIfCurrent]);
 
     const cancelAllNavigation = React.useCallback(() => {
-        const shouldReleaseAutoFollow = jumpScrollActiveRef.current || fullHistoryNavigationBusyRef.current || isScrollToBottomAnimating;
+        const shouldReleaseAutoFollow = jumpScrollActiveRef.current
+            || navigationModeRef.current === 'loadingAllToTop'
+            || navigationModeRef.current === 'settlingAtTop'
+            || navigationModeRef.current === 'resumingToBottom'
+            || isScrollToBottomAnimating;
         // Cancel any active jump scroll guard and its animation
         clearJumpScrollGuard();
         // Cancel any full history load operation
@@ -798,9 +835,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             cancelSmoothWheelScroll(container);
         }
         clearTopButtonSettleSuppression();
-        setKeepTopButtonHiddenAfterLongPress(false);
+        invalidateNavigationMode();
         bottomResumeAwaitingAnimationRef.current = false;
-        setSuppressBottomButtonDuringResume(false);
         if (overlayScrollbarLingerTimeoutRef.current !== null) {
             window.clearTimeout(overlayScrollbarLingerTimeoutRef.current);
             overlayScrollbarLingerTimeoutRef.current = null;
@@ -810,10 +846,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         if (shouldReleaseAutoFollow) {
             releaseAutoFollow();
         }
-    }, [clearJumpScrollGuard, clearFullHistoryNavigation, clearTopButtonSettleSuppression, isScrollToBottomAnimating, releaseAutoFollow, scrollRef]);
+    }, [clearJumpScrollGuard, clearFullHistoryNavigation, clearTopButtonSettleSuppression, invalidateNavigationMode, isScrollToBottomAnimating, releaseAutoFollow, scrollRef]);
 
-    const beginJumpScrollGuard = React.useCallback(() => {
-        clearJumpScrollGuard(false);
+    const beginJumpScrollGuard = React.useCallback((requestId: number) => {
+        clearJumpScrollGuard();
         jumpScrollActiveRef.current = true;
         setIsJumpScrollActive(true);
 
@@ -831,7 +867,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             container?.removeEventListener('scrollend', finish);
         };
         const finish = () => {
-            if (jumpScrollGuardRef.current?.clear !== clear) {
+            if (jumpScrollGuardRef.current?.clear !== clear || navigationRequestIdRef.current !== requestId) {
                 return;
             }
             jumpScrollGuardRef.current = null;
@@ -848,7 +884,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
                 }
             }
 
-            finishJumpNavigation();
+            setNavigationModeIfCurrent(requestId, 'idle');
         };
 
         container?.addEventListener('scrollend', finish, { once: true });
@@ -856,11 +892,17 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         // or when scroll is interrupted by user input.
         timeoutId = window.setTimeout(finish, JUMP_SCROLL_GUARD_TIMEOUT_MS);
         jumpScrollGuardRef.current = { clear };
-    }, [clearJumpScrollGuard, finishJumpNavigation, handleHistoryScroll, scrollRef]);
+    }, [clearJumpScrollGuard, handleHistoryScroll, scrollRef, setNavigationModeIfCurrent]);
 
     React.useEffect(() => clearJumpScrollGuard, [clearJumpScrollGuard, currentSessionId]);
 
     React.useEffect(() => clearFullHistoryNavigation, [clearFullHistoryNavigation, currentSessionId]);
+
+    React.useEffect(() => {
+        return () => {
+            invalidateNavigationMode();
+        };
+    }, [currentSessionId, invalidateNavigationMode]);
 
     const isTurnUserMessageAboveViewport = React.useCallback((turnId: string | null) => {
         if (!turnId) {
@@ -888,18 +930,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
     const handleChatHistoryScroll = React.useCallback(() => {
         const container = scrollRef.current;
         if (suppressTopButtonDuringSettle && container && container.scrollTop <= 1) {
-            finishTopButtonSettleSuppression();
+            finishTopButtonSettleSuppression(navigationRequestIdRef.current);
             return;
         }
         if (keepTopButtonHiddenAfterLongPress && topButtonRevealFromUserIntentRef.current && container && container.scrollTop > 1) {
             topButtonRevealFromUserIntentRef.current = false;
-            setKeepTopButtonHiddenAfterLongPress(false);
+            setNavigationModeIfCurrent(navigationRequestIdRef.current, 'idle');
         }
         if (!jumpScrollActiveRef.current) {
             handleHistoryScroll();
         }
         updateActiveUserMessageJumpState();
-    }, [finishTopButtonSettleSuppression, handleHistoryScroll, keepTopButtonHiddenAfterLongPress, scrollRef, suppressTopButtonDuringSettle, updateActiveUserMessageJumpState]);
+    }, [finishTopButtonSettleSuppression, handleHistoryScroll, keepTopButtonHiddenAfterLongPress, scrollRef, setNavigationModeIfCurrent, suppressTopButtonDuringSettle, updateActiveUserMessageJumpState]);
 
     React.useLayoutEffect(() => {
         jumpNavigationStateRef.current = {
@@ -928,31 +970,40 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         const container = scrollRef.current;
         if (!container || typeof window === 'undefined') {
             clearTopButtonSettleSuppression();
+            invalidateNavigationMode();
             return;
         }
 
         const finish = () => {
-            finishTopButtonSettleSuppression();
+            finishTopButtonSettleSuppression(navigationRequestIdRef.current);
         };
 
         container.addEventListener('scrollend', finish, { once: true });
         return () => {
             container.removeEventListener('scrollend', finish);
         };
-    }, [clearTopButtonSettleSuppression, finishTopButtonSettleSuppression, scrollRef, suppressTopButtonDuringSettle]);
+    }, [clearTopButtonSettleSuppression, finishTopButtonSettleSuppression, invalidateNavigationMode, scrollRef, suppressTopButtonDuringSettle]);
 
     React.useEffect(() => {
+        if (!suppressBottomButtonDuringResume) {
+            bottomResumeAwaitingAnimationRef.current = false;
+            return;
+        }
+
         if (bottomResumeAwaitingAnimationRef.current && isScrollToBottomAnimating) {
             bottomResumeAwaitingAnimationRef.current = false;
-            setSuppressBottomButtonDuringResume(true);
+            return;
+        }
+
+        if (bottomResumeAwaitingAnimationRef.current) {
             return;
         }
 
         if (suppressBottomButtonDuringResume && !isScrollToBottomAnimating) {
-            setSuppressBottomButtonDuringResume(false);
+            setNavigationModeIfCurrent(navigationRequestIdRef.current, 'idle');
             beginOverlayScrollbarLinger();
         }
-    }, [beginOverlayScrollbarLinger, isScrollToBottomAnimating, suppressBottomButtonDuringResume]);
+    }, [beginOverlayScrollbarLinger, isScrollToBottomAnimating, setNavigationModeIfCurrent, suppressBottomButtonDuringResume]);
 
     React.useEffect(() => {
         return () => {
@@ -994,29 +1045,31 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
     }, [isTurnUserMessageAboveViewport]);
 
     const handleJumpToUserMessage = React.useCallback(async (direction: 'previous' | 'next') => {
-        if (jumpNavigationBusyRef.current) {
+        if (isJumpNavigationBusy) {
             return;
         }
+
+        cancelAllNavigation();
 
         const target = getJumpTarget(direction);
         if (!target.targetId) {
             return;
         }
 
-        setActiveNavigationDirection(direction === 'previous' ? 'up' : 'down');
-        jumpNavigationBusyRef.current = true;
-        setIsJumpNavigationBusy(true);
-        beginJumpScrollGuard();
+        const requestId = beginNavigationMode(direction === 'previous' ? 'jumpingUp' : 'jumpingDown');
+        beginJumpScrollGuard(requestId);
 
         try {
             const scrolled = await navScrollToMessageId(target.targetId, { behavior: 'smooth' });
             if (!scrolled) {
                 clearJumpScrollGuard();
+                setNavigationModeIfCurrent(requestId, 'idle');
             }
         } catch {
             clearJumpScrollGuard();
+            setNavigationModeIfCurrent(requestId, 'idle');
         }
-    }, [beginJumpScrollGuard, clearJumpScrollGuard, getJumpTarget, navScrollToMessageId]);
+    }, [beginJumpScrollGuard, beginNavigationMode, cancelAllNavigation, clearJumpScrollGuard, getJumpTarget, isJumpNavigationBusy, navScrollToMessageId, setNavigationModeIfCurrent]);
 
     const handleJumpToPreviousMessage = React.useCallback(() => {
         topButtonRevealFromUserIntentRef.current = true;
@@ -1034,16 +1087,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
     }, [cancelAllNavigation, getJumpTarget, handleJumpToUserMessage, resumeToLatest]);
 
     const handleLoadAllHistoryAndScrollToTop = React.useCallback(async () => {
-        if (fullHistoryNavigationBusyRef.current || jumpNavigationBusyRef.current) {
+        if (navigationModeRef.current === 'loadingAllToTop') {
             return;
         }
 
-        setActiveNavigationDirection('up');
-        fullHistoryNavigationBusyRef.current = true;
-        setIsFullHistoryNavigationBusy(true);
+        cancelAllNavigation();
+        const requestId = beginNavigationMode('loadingAllToTop');
         fullHistoryLoadingTooltipTimeoutRef.current = window.setTimeout(() => {
             fullHistoryLoadingTooltipTimeoutRef.current = null;
-            if (fullHistoryNavigationBusyRef.current) {
+            if (navigationRequestIdRef.current === requestId) {
                 setIsFullHistoryLoading(true);
             }
         }, FULL_HISTORY_LOADING_TOOLTIP_DELAY_MS);
@@ -1053,19 +1105,29 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             fullHistoryLoadTimeoutRef.current = null;
             try {
                 await timelineControllerRef.current.loadAllEarlierAndScrollToTop(() => {
+                    if (navigationRequestIdRef.current !== requestId) {
+                        return;
+                    }
                     setIsFullHistoryLoading(false);
-                    beginTopButtonSettleSuppression();
+                    beginTopButtonSettleSuppression(requestId);
                 });
             } finally {
-                clearFullHistoryNavigation();
+                if (navigationRequestIdRef.current === requestId) {
+                    clearFullHistoryNavigation();
+                }
             }
         }, 550);
-    }, [beginTopButtonSettleSuppression, clearFullHistoryNavigation]);
+    }, [beginNavigationMode, beginTopButtonSettleSuppression, cancelAllNavigation, clearFullHistoryNavigation]);
 
     const handleResumeToLatestFromButton = React.useCallback(() => {
+        cancelAllNavigation();
+        const requestId = beginNavigationMode('resumingToBottom');
         bottomResumeAwaitingAnimationRef.current = true;
         navigation.resumeToLatest();
-    }, [navigation]);
+        if (!isScrollToBottomAnimating) {
+            setNavigationModeIfCurrent(requestId, 'resumingToBottom');
+        }
+    }, [beginNavigationMode, cancelAllNavigation, isScrollToBottomAnimating, navigation, setNavigationModeIfCurrent]);
 
     React.useEffect(() => {
         if (typeof window === 'undefined' || !currentSessionId) return;

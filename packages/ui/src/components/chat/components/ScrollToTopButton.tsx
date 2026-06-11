@@ -44,10 +44,10 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
 
     const currentLabel = isLoadingHistory
         ? t('chat.loadAllHistory.aria')
-        : isLongHover
+        : (isLongHover || isShaking)
         ? t('chat.jumpToPreviousMessage.hold')
         : label;
-    const tooltipOpen = isLoadingHistory || (interactionTooltipEnabled && (open || isLongHover));
+    const tooltipOpen = isLoadingHistory || (interactionTooltipEnabled && (open || isLongHover || isShaking));
 
     return (
         <div
@@ -86,7 +86,7 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
                     </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="center" sideOffset={4}>
-                    <span key={isLoadingHistory ? 'loading' : isLongHover ? 'hold' : 'default'} className="inline-flex items-center animate-tooltip-fade-in">
+                    <span key={isLoadingHistory ? 'loading' : (isLongHover || isShaking) ? 'hold' : 'default'} className="inline-flex items-center animate-tooltip-fade-in">
                         <span>{currentLabel}</span>
                         {isLoadingHistory ? <BusyDots /> : null}
                     </span>

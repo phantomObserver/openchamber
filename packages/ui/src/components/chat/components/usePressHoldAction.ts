@@ -1,6 +1,6 @@
 import React from 'react';
 
-const HOLD_ACTION_DELAY_MS = 900;
+const HOLD_ACTION_DELAY_MS = 550;
 
 export const usePressHoldAction = ({
     disabled,
@@ -26,7 +26,7 @@ export const usePressHoldAction = ({
         onHoldRef.current = onHold;
     }, [onHold]);
 
-    const clearHoldTimer = React.useCallback(() => {
+    const clearPendingHoldTimer = React.useCallback(() => {
         if (typeof window === 'undefined') {
             return;
         }
@@ -35,20 +35,24 @@ export const usePressHoldAction = ({
             window.clearTimeout(holdTimerRef.current);
             holdTimerRef.current = null;
         }
+    }, []);
+
+    const clearHoldTimer = React.useCallback(() => {
+        clearPendingHoldTimer();
 
         if (shakeTimerRef.current !== null) {
             window.clearTimeout(shakeTimerRef.current);
             shakeTimerRef.current = null;
             setIsShaking(false);
         }
-    }, []);
+    }, [clearPendingHoldTimer]);
 
     const handlePointerDown = React.useCallback(() => {
         if (disabled || typeof window === 'undefined') {
             return;
         }
 
-        clearHoldTimer();
+        clearPendingHoldTimer();
         holdTriggeredRef.current = false;
         holdTimerRef.current = window.setTimeout(() => {
             holdTimerRef.current = null;
@@ -62,15 +66,17 @@ export const usePressHoldAction = ({
                 onHoldRef.current();
             }, 300);
         }, HOLD_ACTION_DELAY_MS);
-    }, [clearHoldTimer, disabled]);
+    }, [clearPendingHoldTimer, disabled]);
 
     const handlePointerEnd = React.useCallback(() => {
-        clearHoldTimer();
-    }, [clearHoldTimer]);
+        if (holdTimerRef.current !== null) {
+            clearPendingHoldTimer();
+        }
+    }, [clearPendingHoldTimer]);
 
     const handleClick = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-        clearHoldTimer();
         if (disabled) {
+            clearPendingHoldTimer();
             event.preventDefault();
             event.stopPropagation();
             return;
@@ -81,8 +87,9 @@ export const usePressHoldAction = ({
             event.stopPropagation();
             return;
         }
+        clearPendingHoldTimer();
         onClickRef.current();
-    }, [clearHoldTimer, disabled]);
+    }, [clearPendingHoldTimer, disabled]);
 
     React.useEffect(() => () => clearHoldTimer(), [clearHoldTimer]);
 
