@@ -1,6 +1,6 @@
 import React from 'react';
 
-const HOLD_ACTION_DELAY_MS = 750;
+const HOLD_ACTION_DELAY_MS = 900;
 
 export const usePressHoldAction = ({
     disabled,
@@ -78,47 +78,83 @@ export const usePressHoldAction = ({
     };
 };
 
-export const useNavigationButtonTooltip = () => {
+export const useNavigationButtonTooltip = ({ enabled = true }: { enabled?: boolean } = {}) => {
     const [open, setOpen] = React.useState(false);
     const [isHeld, setIsHeld] = React.useState(false);
     const [isLongHover, setIsLongHover] = React.useState(false);
     const hoverTimerRef = React.useRef<number | null>(null);
     const holdHoverTimerRef = React.useRef<number | null>(null);
 
-    const handlePointerEnter = React.useCallback(() => {
-        setIsLongHover(false);
-        if (hoverTimerRef.current !== null) {
-            window.clearTimeout(hoverTimerRef.current);
-        }
-        hoverTimerRef.current = window.setTimeout(() => {
-            setIsLongHover(true);
-        }, 1500);
-    }, []);
-
-    const handlePointerLeave = React.useCallback(() => {
+    const clearHoverTimer = React.useCallback(() => {
         if (hoverTimerRef.current !== null) {
             window.clearTimeout(hoverTimerRef.current);
             hoverTimerRef.current = null;
         }
     }, []);
 
+    const dismissTooltip = React.useCallback(() => {
+        clearHoverTimer();
+        setOpen(false);
+        setIsLongHover(false);
+    }, [clearHoverTimer]);
+
+    const dismissDefaultTooltip = React.useCallback(() => {
+        clearHoverTimer();
+        setOpen(false);
+    }, [clearHoverTimer]);
+
+    const handlePointerEnter = React.useCallback(() => {
+        if (!enabled) {
+            return;
+        }
+        setIsLongHover(false);
+        clearHoverTimer();
+        hoverTimerRef.current = window.setTimeout(() => {
+            setIsLongHover(true);
+        }, 1750);
+    }, [clearHoverTimer, enabled]);
+
+    const handlePointerLeave = React.useCallback(() => {
+        dismissTooltip();
+        setIsHeld(false);
+    }, [dismissTooltip]);
+
     const handlePointerDown = React.useCallback(() => {
+        if (!enabled) {
+            return;
+        }
+
+        if (isLongHover) {
+            dismissDefaultTooltip();
+        } else {
+            dismissTooltip();
+        }
         setIsHeld(true);
-    }, []);
+    }, [dismissDefaultTooltip, dismissTooltip, enabled, isLongHover]);
 
     const handlePointerUp = React.useCallback(() => {
+        dismissTooltip();
         setIsHeld(false);
-    }, []);
+    }, [dismissTooltip]);
 
     const handleOpenChange = React.useCallback((nextOpen: boolean) => {
-        setOpen(nextOpen);
-    }, []);
+        if (!nextOpen) {
+            setOpen(false);
+            return;
+        }
+
+        if (!enabled || isHeld) {
+            return;
+        }
+
+        setOpen(true);
+    }, [enabled, isHeld]);
 
     React.useEffect(() => {
         if (isHeld) {
             holdHoverTimerRef.current = window.setTimeout(() => {
                 setIsLongHover(true);
-            }, 350);
+            }, 500);
         } else {
             if (holdHoverTimerRef.current !== null) {
                 window.clearTimeout(holdHoverTimerRef.current);
@@ -136,6 +172,7 @@ export const useNavigationButtonTooltip = () => {
         if (!isHeld) return;
 
         const handleGlobalPointerUp = () => {
+            dismissTooltip();
             setIsHeld(false);
         };
 
@@ -146,15 +183,22 @@ export const useNavigationButtonTooltip = () => {
             window.removeEventListener('pointerup', handleGlobalPointerUp);
             window.removeEventListener('pointercancel', handleGlobalPointerUp);
         };
-    }, [isHeld]);
+    }, [dismissTooltip, isHeld]);
+
+    React.useEffect(() => {
+        if (enabled) {
+            return;
+        }
+
+        dismissTooltip();
+        setIsHeld(false);
+    }, [dismissTooltip, enabled]);
 
     React.useEffect(() => {
         return () => {
-            if (hoverTimerRef.current !== null) {
-                window.clearTimeout(hoverTimerRef.current);
-            }
+            clearHoverTimer();
         };
-    }, []);
+    }, [clearHoverTimer]);
 
     return {
         open,

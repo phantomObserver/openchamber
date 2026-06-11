@@ -15,10 +15,12 @@ interface ScrollToTopButtonProps {
     onHold: () => void;
     isLoadingHistory?: boolean;
     disabled?: boolean;
+    activeWhileBusy?: boolean;
+    subduedWhileOtherBusy?: boolean;
     onWheelCapture?: React.WheelEventHandler<HTMLDivElement>;
 }
 
-const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick, onHold, isLoadingHistory = false, disabled = false, onWheelCapture }) => {
+const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick, onHold, isLoadingHistory = false, disabled = false, activeWhileBusy = false, subduedWhileOtherBusy = false, onWheelCapture }) => {
     const { t } = useI18n();
     const label = t('chat.jumpToPreviousMessage.aria');
     const alignment = useUIStore((state) => state.chatNavigationButtonAlignment);
@@ -27,6 +29,7 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
     const wideChatLayoutEnabled = useUIStore((state) => state.wideChatLayoutEnabled);
     const position = getChatNavigationButtonPosition({ alignment, isLeftSidebarOpen, isRightSidebarOpen, wideChatLayoutEnabled });
     const { isShaking, pressHoldProps } = usePressHoldAction({ disabled, onClick, onHold });
+    const interactionTooltipEnabled = !disabled;
     const {
         open,
         isHeld,
@@ -36,7 +39,7 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
         handlePointerDown,
         handlePointerUp,
         handleOpenChange,
-    } = useNavigationButtonTooltip();
+    } = useNavigationButtonTooltip({ enabled: interactionTooltipEnabled });
 
     const [dotCount, setDotCount] = React.useState(0);
 
@@ -48,7 +51,7 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
 
         const interval = window.setInterval(() => {
             setDotCount((prev) => (prev + 1) % 4);
-        }, 500);
+        }, 300);
 
         return () => window.clearInterval(interval);
     }, [isLoadingHistory]);
@@ -58,6 +61,7 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
         : isLongHover
         ? t('chat.jumpToPreviousMessage.hold')
         : label;
+    const tooltipOpen = isLoadingHistory || (interactionTooltipEnabled && (open || isLongHover));
 
     return (
         <div
@@ -74,7 +78,7 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
         >
-            <Tooltip open={open || isHeld || isLoadingHistory} onOpenChange={handleOpenChange}>
+            <Tooltip delayDuration={300} open={tooltipOpen} onOpenChange={handleOpenChange}>
                 <TooltipTrigger asChild>
                     <Button
                         variant="outline"
@@ -84,8 +88,10 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({ visible, onClick,
                         data-chat-navigation-button="true"
                         data-interactive={!disabled}
                         className={cn(
-                            "size-8 rounded-full [corner-shape:round] p-0 shadow-none bg-background/95 hover:bg-interactive-hover",
-                            disabled && "opacity-50",
+                            "size-8 rounded-full [corner-shape:round] p-0 shadow-none bg-background/95 text-muted-foreground opacity-75 hover:bg-interactive-hover hover:text-foreground hover:opacity-90",
+                            (isHeld || isLoadingHistory || activeWhileBusy) && "bg-interactive-hover text-foreground opacity-100",
+                            subduedWhileOtherBusy && "bg-background/95 text-muted-foreground opacity-75 hover:bg-background/95 hover:text-muted-foreground hover:opacity-75",
+                            disabled && !(isHeld || isLoadingHistory || activeWhileBusy || subduedWhileOtherBusy) && "opacity-50",
                             isShaking && "animate-button-shake"
                         )}
                         aria-label={currentLabel}

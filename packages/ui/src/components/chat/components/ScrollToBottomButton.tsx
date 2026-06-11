@@ -14,10 +14,12 @@ interface ScrollToBottomButtonProps {
     onClick: () => void;
     onHold: () => void;
     disabled?: boolean;
+    activeWhileBusy?: boolean;
+    subduedWhileOtherBusy?: boolean;
     onWheelCapture?: React.WheelEventHandler<HTMLDivElement>;
 }
 
-const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, onClick, onHold, disabled = false, onWheelCapture }) => {
+const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, onClick, onHold, disabled = false, activeWhileBusy = false, subduedWhileOtherBusy = false, onWheelCapture }) => {
     const { t } = useI18n();
     const alignment = useUIStore((state) => state.chatNavigationButtonAlignment);
     const isLeftSidebarOpen = useUIStore((state) => state.isSidebarOpen);
@@ -25,6 +27,7 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, on
     const wideChatLayoutEnabled = useUIStore((state) => state.wideChatLayoutEnabled);
     const position = getChatNavigationButtonPosition({ alignment, isLeftSidebarOpen, isRightSidebarOpen, wideChatLayoutEnabled });
     const { isShaking, pressHoldProps } = usePressHoldAction({ disabled, onClick, onHold });
+    const interactionTooltipEnabled = !disabled;
     const {
         open,
         isHeld,
@@ -34,9 +37,10 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, on
         handlePointerDown,
         handlePointerUp,
         handleOpenChange,
-    } = useNavigationButtonTooltip();
+    } = useNavigationButtonTooltip({ enabled: interactionTooltipEnabled });
 
     const currentLabel = isLongHover ? t('chat.scrollToBottom.hold') : t('chat.scrollToBottom.aria');
+    const tooltipOpen = interactionTooltipEnabled && (open || isLongHover);
 
     return (
         <div
@@ -53,7 +57,7 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, on
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
         >
-            <Tooltip open={open || isHeld} onOpenChange={handleOpenChange}>
+            <Tooltip delayDuration={300} open={tooltipOpen} onOpenChange={handleOpenChange}>
                 <TooltipTrigger asChild>
                     <Button
                         variant="outline"
@@ -63,8 +67,10 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, on
                         data-chat-navigation-button="true"
                         data-interactive={!disabled}
                         className={cn(
-                            "size-8 rounded-full [corner-shape:round] p-0 shadow-none bg-background/95 hover:bg-interactive-hover",
-                            disabled && "opacity-50",
+                            "size-8 rounded-full [corner-shape:round] p-0 shadow-none bg-background/95 text-muted-foreground opacity-75 hover:bg-interactive-hover hover:text-foreground hover:opacity-90",
+                            (isHeld || activeWhileBusy) && "bg-interactive-hover text-foreground opacity-100",
+                            subduedWhileOtherBusy && "bg-background/95 text-muted-foreground opacity-75 hover:bg-background/95 hover:text-muted-foreground hover:opacity-75",
+                            disabled && !(isHeld || activeWhileBusy || subduedWhileOtherBusy) && "opacity-50",
                             isShaking && "animate-button-shake"
                         )}
                         aria-label={currentLabel}

@@ -687,6 +687,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
     const [isJumpScrollActive, setIsJumpScrollActive] = React.useState(false);
     const jumpNavigationBusyRef = React.useRef(false);
     const [isJumpNavigationBusy, setIsJumpNavigationBusy] = React.useState(false);
+    const [activeNavigationDirection, setActiveNavigationDirection] = React.useState<'up' | 'down' | null>(null);
     const fullHistoryNavigationBusyRef = React.useRef(false);
     const [isFullHistoryNavigationBusy, setIsFullHistoryNavigationBusy] = React.useState(false);
     const [isFullHistoryLoading, setIsFullHistoryLoading] = React.useState(false);
@@ -706,6 +707,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
     const finishJumpNavigation = React.useCallback(() => {
         jumpNavigationBusyRef.current = false;
         setIsJumpNavigationBusy(false);
+        setActiveNavigationDirection(null);
     }, []);
 
     const clearJumpScrollGuard = React.useCallback((resetBusy = true) => {
@@ -731,6 +733,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         fullHistoryNavigationBusyRef.current = false;
         setIsFullHistoryNavigationBusy(false);
         setIsFullHistoryLoading(false);
+        setActiveNavigationDirection(null);
     }, []);
 
     const beginJumpScrollGuard = React.useCallback(() => {
@@ -873,6 +876,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             return;
         }
 
+        setActiveNavigationDirection(direction === 'previous' ? 'up' : 'down');
         jumpNavigationBusyRef.current = true;
         setIsJumpNavigationBusy(true);
         beginJumpScrollGuard();
@@ -908,6 +912,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
                 return;
             }
 
+            setActiveNavigationDirection('down');
             jumpNavigationBusyRef.current = true;
             setIsJumpNavigationBusy(true);
             beginJumpScrollGuard();
@@ -922,6 +927,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             return;
         }
 
+        setActiveNavigationDirection('up');
         fullHistoryNavigationBusyRef.current = true;
         setIsFullHistoryNavigationBusy(true);
         fullHistoryLoadingTooltipTimeoutRef.current = window.setTimeout(() => {
@@ -941,7 +947,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
             } finally {
                 clearFullHistoryNavigation();
             }
-        }, 600);
+        }, 550);
     }, [clearFullHistoryNavigation]);
 
     React.useEffect(() => {
@@ -1251,6 +1257,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
 				onHold={() => { void handleLoadAllHistoryAndScrollToTop(); }}
 				isLoadingHistory={isFullHistoryLoading}
 				disabled={isJumpNavigationBusy || isFullHistoryNavigationBusy}
+				activeWhileBusy={activeNavigationDirection === 'up' && (isJumpNavigationBusy || isFullHistoryNavigationBusy)}
+				subduedWhileOtherBusy={activeNavigationDirection === 'down' && isJumpNavigationBusy}
 				onWheelCapture={handleNavigationWheel}
 			/>
 			<ChatViewport
@@ -1293,6 +1301,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
                         onClick={handleJumpToNextMessage}
                         onHold={navigation.resumeToLatest}
                         disabled={isJumpNavigationBusy || isFullHistoryNavigationBusy}
+                        activeWhileBusy={activeNavigationDirection === 'down' && isJumpNavigationBusy}
+                        subduedWhileOtherBusy={activeNavigationDirection === 'up' && (isJumpNavigationBusy || isFullHistoryNavigationBusy)}
                         onWheelCapture={handleNavigationWheel}
                     />
                 )}
