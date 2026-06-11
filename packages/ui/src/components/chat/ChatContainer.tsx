@@ -684,6 +684,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
     const fullHistoryLoadingTooltipTimeoutRef = React.useRef<number | null>(null);
     const fullHistoryLoadTimeoutRef = React.useRef<number | null>(null);
     const jumpScrollGuardRef = React.useRef<{ clear: () => void } | null>(null);
+    const timelineControllerRef = React.useRef(timelineController);
+    React.useEffect(() => {
+        timelineControllerRef.current = timelineController;
+    }, [timelineController]);
     const jumpNavigationStateRef = React.useRef({
         activeTurnId: timelineController.activeTurnId,
         turnIds: timelineController.turnIds,
@@ -922,14 +926,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         fullHistoryLoadTimeoutRef.current = window.setTimeout(async () => {
             fullHistoryLoadTimeoutRef.current = null;
             try {
-                await timelineController.loadAllEarlierAndScrollToTop(() => {
+                await timelineControllerRef.current.loadAllEarlierAndScrollToTop(() => {
                     setIsFullHistoryLoading(false);
                 });
             } finally {
                 clearFullHistoryNavigation();
             }
         }, 600);
-    }, [clearFullHistoryNavigation, timelineController]);
+    }, [clearFullHistoryNavigation]);
 
     React.useEffect(() => {
         if (typeof window === 'undefined' || !currentSessionId) return;

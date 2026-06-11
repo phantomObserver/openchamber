@@ -63,7 +63,7 @@ export const usePressHoldAction = ({
         onClick();
     }, [clearHoldTimer, disabled, onClick]);
 
-    React.useEffect(() => clearHoldTimer, [clearHoldTimer]);
+    React.useEffect(() => () => clearHoldTimer(), [clearHoldTimer]);
 
     return {
         isShaking,
