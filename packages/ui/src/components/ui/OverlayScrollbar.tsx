@@ -203,6 +203,15 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
     });
   }, [updateMetrics]);
 
+  React.useLayoutEffect(() => {
+    if (showVertical) {
+      applyThumbMetrics(verticalThumbRef.current, "vertical", verticalMetricsRef.current);
+    }
+    if (showHorizontal) {
+      applyThumbMetrics(horizontalThumbRef.current, "horizontal", horizontalMetricsRef.current);
+    }
+  }, [applyThumbMetrics, pinVerticalToBottom, showHorizontal, showVertical]);
+
   const syncObservedElements = React.useCallback((container: HTMLElement, resizeObserver: ResizeObserver | null) => {
     if (!resizeObserver) {
       observedElementsRef.current.clear();
@@ -301,9 +310,7 @@ const OverlayScrollbarComponent: React.FC<OverlayScrollbarProps> = ({
         }
       }
       setVisibleIfChanged(true);
-      if (isDraggingRef.current || hasRecentContentGrowth) {
-        scheduleHide();
-      }
+      scheduleHide();
     });
   }, [forceVisible, scheduleHide, setVisibleIfChanged, suppressVisibility, updateMetrics, userIntentOnly]);
 

@@ -740,6 +740,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ autoOpenDraft = tr
         // Cancel any active jump scroll guard and its animation
         clearJumpScrollGuard();
         // Cancel any full history load operation
+        timelineControllerRef.current.cancelLoadAllEarlierAndScrollToTop();
         clearFullHistoryNavigation();
         // Cancel overlay scrollbar track / thumb animations
         const container = scrollRef.current;

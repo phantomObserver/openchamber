@@ -56,6 +56,7 @@ export interface UseChatTimelineControllerResult {
     resumeToBottom: () => void;
     resumeToBottomInstant: () => Promise<void>;
     loadAllEarlierAndScrollToTop: (onLoadingComplete?: () => void) => Promise<boolean>;
+    cancelLoadAllEarlierAndScrollToTop: () => void;
     scrollToTurn: (turnId: string, options?: { behavior?: ScrollBehavior }) => Promise<boolean>;
     scrollToMessage: (messageId: string, options?: { behavior?: ScrollBehavior }) => Promise<boolean>;
     handleHistoryScroll: () => void;
@@ -375,6 +376,7 @@ export const useChatTimelineController = ({
         top: number;
         anchor: ViewportAnchor | null;
     } | null>(null);
+    const loadAllEarlierRunIdRef = React.useRef(0);
 
     const captureViewportAnchor = React.useCallback((): ViewportAnchor | null => {
         return messageListRef.current?.captureViewportAnchor() ?? null;
@@ -724,6 +726,10 @@ export const useChatTimelineController = ({
             return false;
         }
 
+        const runId = loadAllEarlierRunIdRef.current + 1;
+        loadAllEarlierRunIdRef.current = runId;
+        const isCancelled = () => loadAllEarlierRunIdRef.current !== runId;
+
         releaseAutoFollow();
         cancelOverlayScrollbarScroll(scrollRef.current);
 
@@ -734,6 +740,9 @@ export const useChatTimelineController = ({
             snapshotPrependScroll();
             setTurnStart(0);
             await waitForNextRenderCommitOrTimeout();
+            if (isCancelled()) {
+                return madeProgress;
+            }
             madeProgress = true;
         }
 
@@ -742,6 +751,9 @@ export const useChatTimelineController = ({
         while (historySignalsRef.current.historyLoading && waitAttempts > 0) {
             waitAttempts -= 1;
             await waitForNextRenderCommitOrTimeout();
+            if (isCancelled()) {
+                return madeProgress;
+            }
         }
 
         // 3. Repeatedly fetch older history from server until there is absolutely no more
@@ -750,6 +762,9 @@ export const useChatTimelineController = ({
         const deadline = Date.now() + LOAD_ALL_HISTORY_TIMEOUT_MS;
 
         while (historySignalsRef.current.canLoadEarlier && remainingAttempts > 0) {
+            if (isCancelled()) {
+                return madeProgress;
+            }
             if (Date.now() >= deadline) {
                 break;
             }
@@ -759,6 +774,9 @@ export const useChatTimelineController = ({
                 snapshotPrependScroll();
                 setTurnStart(0);
                 await waitForNextRenderCommitOrTimeout();
+                if (isCancelled()) {
+                    return madeProgress;
+                }
                 madeProgress = true;
                 continue;
             }
@@ -770,6 +788,10 @@ export const useChatTimelineController = ({
             const beforeCount = messagesRef.current.length;
 
             const didLoad = await fetchOlderHistory({ preserveViewport: true });
+
+            if (isCancelled()) {
+                return madeProgress;
+            }
 
             if (Date.now() >= deadline) {
                 madeProgress = madeProgress || didLoad || messagesRef.current.length > beforeCount;
@@ -790,10 +812,16 @@ export const useChatTimelineController = ({
                     }
                     // Wait briefly for any lagging store updates, but stop if the overall load budget is spent.
                     await new Promise((resolve) => window.setTimeout(resolve, 500));
+                    if (isCancelled()) {
+                        return madeProgress;
+                    }
                     if (Date.now() >= deadline) {
                         break;
                     }
                     await fetchOlderHistory({ preserveViewport: true });
+                    if (isCancelled()) {
+                        return madeProgress;
+                    }
                     if (messagesRef.current.length <= afterCount) {
                         break; // Definitely done or failed
                     }
@@ -806,7 +834,14 @@ export const useChatTimelineController = ({
             snapshotPrependScroll();
             setTurnStart(0);
             await waitForNextRenderCommitOrTimeout();
+            if (isCancelled()) {
+                return madeProgress;
+            }
             madeProgress = true;
+        }
+
+        if (isCancelled()) {
+            return madeProgress;
         }
 
         // Loading is fully complete, trigger callback before scroll animation starts
@@ -826,6 +861,10 @@ export const useChatTimelineController = ({
 
         return madeProgress;
     }, [fetchOlderHistory, releaseAutoFollow, scrollRef, scrollToMessage, snapshotPrependScroll, waitForNextRenderCommitOrTimeout]);
+
+    const cancelLoadAllEarlierAndScrollToTop = React.useCallback(() => {
+        loadAllEarlierRunIdRef.current += 1;
+    }, []);
 
     const resumeToBottom = React.useCallback(async () => {
         const nextStart = getInitialTurnStart(turnModelRef.current.turnCount);
@@ -874,6 +913,7 @@ export const useChatTimelineController = ({
         resumeToBottom,
         resumeToBottomInstant,
         loadAllEarlierAndScrollToTop,
+        cancelLoadAllEarlierAndScrollToTop,
         scrollToTurn,
         scrollToMessage,
         handleHistoryScroll,
