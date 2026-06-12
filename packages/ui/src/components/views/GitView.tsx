@@ -369,14 +369,6 @@ export const GitView: React.FC = () => {
   };
   const [worktreeBootstrapStatus, setWorktreeBootstrapStatus] = React.useState<'pending' | 'ready' | 'failed' | null>(null);
   const [isWaitingForGitRefreshAfterBootstrap, setIsWaitingForGitRefreshAfterBootstrap] = React.useState(false);
-  const [selectedBranch, setSelectedBranch] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (status?.current) {
-      setSelectedBranch(status.current);
-    }
-  }, [status?.current]);
-
   const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
   const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
   const setDraftBootstrapPendingDirectory = useSessionUIStore((s) => s.setDraftBootstrapPendingDirectory);
@@ -427,6 +419,13 @@ export const GitView: React.FC = () => {
 
   const isGitRepo = useIsGitRepo(currentDirectory ?? null);
   const status = useGitStatus(currentDirectory ?? null);
+  const [selectedBranch, setSelectedBranch] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (status?.current) {
+      setSelectedBranch(status.current);
+    }
+  }, [status?.current]);
 
   // Authoritative session↔worktree attachment for repair action display
   const worktreeAttachment = useSessionWorktreeStore((s) =>
