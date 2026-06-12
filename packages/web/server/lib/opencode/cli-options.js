@@ -22,10 +22,10 @@ export const parseServeCliOptions = ({
   const envApiOnly = env.OPENCHAMBER_API_ONLY === '1' || env.OPENCHAMBER_API_ONLY === 'true';
   const envPortRaw = env.OPENCHAMBER_PORT || env.PORT;
   const envPort = envPortRaw ? parseInt(envPortRaw, 10) : undefined;
-  const initialPort = Number.isFinite(envPort) && envPort >= 0 ? envPort : defaultPort;
+  const fallbackPort = Number.isFinite(envPort) ? envPort : defaultPort;
 
   const options = {
-    port: initialPort,
+    port: fallbackPort,
     host: undefined,
     uiPassword: envPassword,
     tryCfTunnel: envCfTunnel,
@@ -62,7 +62,7 @@ export const parseServeCliOptions = ({
       const { value, nextIndex } = consumeValue(i, inlineValue);
       i = nextIndex;
       const parsedPort = parseInt(value ?? '', 10);
-      options.port = Number.isFinite(parsedPort) ? parsedPort : initialPort;
+      options.port = Number.isFinite(parsedPort) ? parsedPort : fallbackPort;
       continue;
     }
 
