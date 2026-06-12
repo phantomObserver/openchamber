@@ -248,12 +248,24 @@ export const GitView: React.FC = () => {
           const normalize = (p: string) => p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
           if (normalize(sysInfo.appDirectory) === normalize(dir)) {
             localStorage.setItem('oc_pending_checkout_reload', 'true');
+            
+            let disconnected = false;
+            const checkDisconnect = () => {
+              if (useConfigStore.getState().isConnected === false) {
+                disconnected = true;
+              }
+            };
+            const interval = setInterval(checkDisconnect, 100);
+            
             setTimeout(() => {
-              if (localStorage.getItem('oc_pending_checkout_reload') === 'true') {
+              clearInterval(interval);
+              if (!disconnected) {
+                // If it didn't disconnect within 1.2s, the server did not restart.
+                // We reload instantly.
                 localStorage.removeItem('oc_pending_checkout_reload');
                 window.location.reload();
               }
-            }, 4000);
+            }, 1200);
           }
         }
       }
