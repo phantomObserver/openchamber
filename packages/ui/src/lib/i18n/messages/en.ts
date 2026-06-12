@@ -532,6 +532,7 @@ export const dict = {
   'gitView.branch.newBranchPlaceholder': 'New branch name',
   'gitView.branch.noLocalBranches': 'No local branches',
   'gitView.branch.noRemoteBranches': 'No remote branches',
+  'gitView.branch.notLoaded': 'not loaded',
   'gitView.branch.operation': 'Operation',
   'gitView.branch.operationCompleted': 'Operation Completed',
   'gitView.branch.operationFailed': 'Operation Failed',

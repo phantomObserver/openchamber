@@ -369,10 +369,10 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 px-0 text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 shrink-0"
+                      className="h-8 w-8 px-0 text-muted-foreground hover:text-foreground shrink-0"
                       onClick={() => onCheckoutBranch(selectedBranch)}
                     >
-                      <Icon name="refresh" className="size-4 animate-pulse" />
+                      <Icon name="refresh" className="size-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent sideOffset={8}>
