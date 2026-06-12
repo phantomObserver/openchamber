@@ -638,7 +638,6 @@ export interface SettingsPayload {
   opencodeBinary?: string;
   projects?: ProjectEntry[];
   activeProjectId?: string;
-  approvedDirectories?: string[];
   securityScopedBookmarks?: string[];
   pinnedDirectories?: string[];
   showReasoningTraces?: boolean;
@@ -1052,6 +1051,7 @@ export type GitHubAuthAccount = {
   user: GitHubUserSummary;
   scope?: string;
   current?: boolean;
+  source?: 'oauth' | 'gh-cli';
 };
 
 export type GitHubDeviceFlowStart = {

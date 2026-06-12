@@ -263,13 +263,17 @@ export const GitHubSettings: React.FC = () => {
   const connected = Boolean(status?.connected);
   const user = status?.user;
   const accounts = status?.accounts ?? [];
+  const otherAccounts = accounts.filter((account) => !account.current);
   const ghCli = status?.ghCli ?? null;
+  const activeAccountSourceLabel = ghCli?.active
+    ? t('settings.github.page.accountSource.cli')
+    : t('settings.github.page.accountSource.oauth');
 
   return (
     <div className="mb-8">
       <div className="mb-3 px-1 flex items-start justify-between gap-4">
         <div className="flex items-center gap-2">
-          <h3 className="typography-ui-header font-semibold text-foreground">GitHub</h3>
+          <h3 className="typography-ui-header font-semibold text-foreground">{t('settings.github.page.oauth.title')}</h3>
           <Tooltip>
             <TooltipTrigger asChild>
               <Icon name="information" className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
@@ -306,6 +310,8 @@ export const GitHubSettings: React.FC = () => {
                   <span className="font-mono">{user?.login || t('settings.github.page.label.unknownUser')}</span>
                   {user?.email && <span className="opacity-50">•</span>}
                   {user?.email && <span>{user.email}</span>}
+                  <span className="opacity-50">•</span>
+                  <span>{activeAccountSourceLabel}</span>
                 </div>
                 {status?.scope && (
                   <div className="typography-micro text-muted-foreground/70 mt-0.5">
@@ -341,15 +347,17 @@ export const GitHubSettings: React.FC = () => {
           </div>
         )}
 
-        {accounts.length > 1 && (
+        {otherAccounts.length > 0 && (
           <div className="mt-2 border-t border-[var(--surface-subtle)] pt-2 px-2 pb-1">
             <div className="typography-micro text-muted-foreground mb-2 px-1">
               {t('settings.github.page.label.otherAccounts')}
             </div>
             <div className="space-y-1">
-              {accounts.map((account) => {
+              {otherAccounts.map((account) => {
                 const accountUser = account.user;
-                const isCurrent = Boolean(account.current);
+                const sourceLabel = account.source === 'gh-cli'
+                  ? t('settings.github.page.accountSource.cli')
+                  : t('settings.github.page.accountSource.oauth');
                 return (
                   <div
                     key={account.id}
@@ -374,25 +382,21 @@ export const GitHubSettings: React.FC = () => {
                           {accountUser?.name?.trim() || accountUser?.login || 'GitHub'}
                         </span>
                         {accountUser?.login && (
-                          <span className="typography-micro text-muted-foreground truncate font-mono">
-                            {accountUser.login}
+                          <span className="typography-micro text-muted-foreground truncate">
+                            <span className="font-mono">{accountUser.login}</span>
+                            <span className="mx-1 opacity-50">·</span>
+                            <span>{sourceLabel}</span>
                           </span>
                         )}
                       </div>
                     </div>
-                    {isCurrent ? (
-                      <span className="typography-micro text-[var(--primary-base)] bg-[var(--primary-base)]/10 px-1.5 py-0.5 rounded">
-                        {t('settings.github.page.status.active')}
-                      </span>
-                    ) : (
-                      <Button size="sm"
-                        variant="ghost"
-                        onClick={() => activateAccount(account.id)}
-                        disabled={isBusy}
-                      >
-                        {t('settings.github.page.actions.switchTo')}
-                      </Button>
-                    )}
+                    <Button size="sm"
+                      variant="ghost"
+                      onClick={() => activateAccount(account.id)}
+                      disabled={isBusy}
+                    >
+                      {t('settings.github.page.actions.switchTo')}
+                    </Button>
                   </div>
                 );
               })}
@@ -449,7 +453,7 @@ export const GitHubSettings: React.FC = () => {
         </div>
       )}
 
-      {ghCli?.available && !ghCli?.active && (
+      {ghCli?.available && !ghCli?.active && (!ghCli.user || ghCli.disabled) && (
         <div className="mt-6">
           <h3 className="typography-ui-header font-semibold text-foreground mb-3 px-1">
             {t('settings.github.page.ghCli.title')}
@@ -457,10 +461,33 @@ export const GitHubSettings: React.FC = () => {
           <div className="rounded-lg bg-[var(--surface-elevated)]/70 overflow-hidden">
             <div className={cn("px-4 py-3", isMobile ? "flex flex-col gap-3" : "flex items-center justify-between gap-4")}>
               <div className={cn("flex min-w-0 items-center gap-4", isMobile ? "w-full" : undefined)}>
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--interactive-border)] bg-[var(--surface-muted)]">
-                  <Icon name="terminal" className="h-4 w-4 text-muted-foreground" />
-                </div>
+                {ghCli.user?.avatarUrl ? (
+                  <img
+                    src={ghCli.user.avatarUrl}
+                    alt={ghCli.user.login ? t('settings.github.page.avatarAlt.withLogin', { login: ghCli.user.login }) : t('settings.github.page.avatarAlt.fallback')}
+                    className="h-10 w-10 shrink-0 rounded-full border border-[var(--interactive-border)] bg-[var(--surface-muted)] object-cover"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--interactive-border)] bg-[var(--surface-muted)]">
+                    <Icon name="github-fill" className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
+                  {!ghCli.disabled && ghCli.user && (
+                    <div className="typography-ui-label text-foreground truncate">
+                      {ghCli.user.name?.trim() || ghCli.user.login || 'GitHub'}
+                    </div>
+                  )}
+                  {!ghCli.disabled && ghCli.user?.login && (
+                    <div className={cn("flex items-center gap-2 typography-meta text-muted-foreground mt-0.5", isMobile ? "flex-wrap" : "truncate")}>
+                      <Icon name="github-fill" className="h-3.5 w-3.5 shrink-0" />
+                      <span className="font-mono">{ghCli.user.login}</span>
+                      {ghCli.user.email && <span className="opacity-50">•</span>}
+                      {ghCli.user.email && <span>{ghCli.user.email}</span>}
+                    </div>
+                  )}
                   <div className={cn("typography-meta text-muted-foreground", ghCli.disabled ? "opacity-60" : undefined)}>
                     {ghCli.disabled
                       ? t('settings.github.page.ghCli.disabledDescription')
