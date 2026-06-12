@@ -112,9 +112,26 @@ function clearViteCache() {
 
 clearViteCache();
 
-const api = run('api', 'bun', ['run', '--cwd', 'packages/web', 'dev:server:watch'], {
-  OPENCHAMBER_PORT: backendPort,
-});
+const nodemonPath = path.join(repoRoot, 'node_modules/nodemon/bin/nodemon.js');
+const api = run(
+  'api',
+  'node',
+  [
+    nodemonPath,
+    '--watch',
+    'server',
+    '--ext',
+    'js',
+    '--exec',
+    `node server/index.js --port ${backendPort}`,
+  ],
+  {
+    OPENCHAMBER_PORT: backendPort,
+  },
+  {
+    cwd: webRoot,
+  }
+);
 const vite = run(
   'vite',
   'bun',

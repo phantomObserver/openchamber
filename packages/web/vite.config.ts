@@ -13,23 +13,17 @@ const reactScanToggle = (process.env.VITE_ENABLE_REACT_SCAN ?? '').toLowerCase()
 const enableReactScan = reactScanToggle === '1' || reactScanToggle === 'true' || reactScanToggle === 'on' || reactScanToggle === 'yes';
 
 const wrapSocketError = (socket: any) => {
-  for (const methodName of ['on', 'addListener'] as const) {
-    const originalMethod = socket[methodName];
-    if (typeof originalMethod === 'function') {
-      socket[methodName] = function (socketEvent: string, listener: (...args: any[]) => void) {
-        if (socketEvent === 'error') {
-          const originalListener = listener;
-          listener = function (err: any, ...listenerArgs: any[]) {
-            if (err && (err.code === 'ECONNRESET' || err.code === 'ECONNABORTED')) {
-              return;
-            }
-            return originalListener.apply(this, [err, ...listenerArgs]);
-          };
-        }
-        return originalMethod.apply(this, [socketEvent, listener]);
-      };
+  if (!socket) return;
+  const originalEmit = socket.emit;
+  socket.emit = function (event: string, ...args: any[]) {
+    if (event === 'error') {
+      const err = args[0];
+      if (err && (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.code === 'ECONNABORTED')) {
+        return false;
+      }
     }
-  }
+    return originalEmit.apply(this, [event, ...args]);
+  };
 };
 
 const configureProxy = (proxy: any) => {
@@ -37,7 +31,7 @@ const configureProxy = (proxy: any) => {
   proxy.emit = function (event: string, ...args: any[]) {
     if (event === 'error') {
       const err = args[0];
-      if (err && (err.code === 'ECONNRESET' || err.code === 'ECONNABORTED')) {
+      if (err && (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.code === 'ECONNABORTED')) {
         return false;
       }
     }
