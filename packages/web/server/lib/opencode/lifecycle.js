@@ -167,37 +167,18 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
 
     if (process.platform === 'win32') {
       try {
-        child.kill();
-      } catch {
-      }
-
-      if (await waitForChildProcessClose(child, 800)) {
-        return;
-      }
-
-      try {
-        spawnSync('taskkill', ['/pid', String(pid), '/t'], {
-          stdio: 'ignore',
-          timeout: 3000,
-          windowsHide: true,
-        });
-      } catch {
-      }
-
-      if (await waitForChildProcessClose(child, 1500)) {
-        return;
-      }
-
-      try {
         spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], {
           stdio: 'ignore',
-          timeout: 5000,
+          timeout: 2000,
           windowsHide: true,
         });
       } catch {
+        try {
+          child.kill();
+        } catch {
+        }
       }
-
-      await waitForChildProcessClose(child, 3000);
+      await waitForChildProcessClose(child, 500);
       return;
     }
 
