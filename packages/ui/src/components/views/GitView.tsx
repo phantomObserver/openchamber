@@ -234,6 +234,100 @@ const isUnstagedStatusFile = (file: GitStatus['files'][number]): boolean => {
   return Boolean(workingStatus || indexStatus === '?');
 };
 
+const showSplashOverlay = () => {
+  try {
+    let loadingElement = document.getElementById('initial-loading');
+    if (!loadingElement) {
+      loadingElement = document.createElement('div');
+      loadingElement.id = 'initial-loading';
+      loadingElement.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.25s ease-in-out;" id="initial-loading-inner">
+          <svg width="120" height="120" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OpenChamber loading icon">
+            <path d="M50 50 L8.432 26 L8.432 74 L50 98 Z" fill="var(--splash-face-fill)" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M50 50 L39.608 44 L39.608 56 L50 62 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
+            <path d="M39.608 44 L29.216 38 L29.216 50 L39.608 56 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
+            <path d="M29.216 38 L18.824 32 L18.824 44 L29.216 50 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
+            <path d="M18.824 32 L8.432 26 L8.432 38 L18.824 44 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
+            <path d="M50 62 L39.608 56 L39.608 68 L50 74 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
+            <path d="M39.608 56 L29.216 50 L29.216 62 L39.608 68 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
+            <path d="M29.216 50 L18.824 44 L18.824 56 L29.216 62 Z" fill="var(--splash-cell-fill)" opacity="0.5"/>
+            <path d="M18.824 44 L8.432 38 L8.432 50 L18.824 56 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
+            <path d="M50 74 L39.608 68 L39.608 80 L50 86 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
+            <path d="M39.608 68 L29.216 62 L29.216 74 L39.608 80 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
+            <path d="M29.216 62 L18.824 56 L18.824 68 L29.216 74 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
+            <path d="M18.824 56 L8.432 50 L8.432 62 L18.824 68 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
+            <path d="M50 86 L39.608 80 L39.608 92 L50 98 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
+            <path d="M39.608 80 L29.216 74 L29.216 86 L39.608 92 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
+            <path d="M29.216 74 L18.824 68 L18.824 80 L29.216 86 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
+            <path d="M18.824 68 L8.432 62 L8.432 74 L18.824 80 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
+            <path d="M50 50 L91.568 26 L91.568 74 L50 98 Z" fill="var(--splash-face-fill)" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M50 50 L60.392 44 L60.392 56 L50 62 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
+            <path d="M60.392 44 L70.784 38 L70.784 50 L60.392 56 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
+            <path d="M70.784 38 L81.176 32 L81.176 44 L70.784 50 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
+            <path d="M81.176 32 L91.568 26 L91.568 38 L81.176 44 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
+            <path d="M50 62 L60.392 56 L60.392 68 L50 74 Z" fill="var(--splash-cell-fill)" opacity="0.5"/>
+            <path d="M60.392 56 L70.784 50 L70.784 62 L60.392 68 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
+            <path d="M70.784 50 L81.176 44 L81.176 56 L70.784 62 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
+            <path d="M81.176 44 L91.568 38 L91.568 50 L81.176 56 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
+            <path d="M50 74 L60.392 68 L60.392 80 L50 86 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
+            <path d="M60.392 68 L70.784 62 L70.784 74 L60.392 80 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
+            <path d="M70.784 62 L81.176 56 L81.176 68 L70.784 74 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
+            <path d="M81.176 56 L91.568 50 L91.568 62 L81.176 68 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
+            <path d="M50 86 L60.392 80 L60.392 92 L50 98 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
+            <path d="M60.392 80 L70.784 74 L70.784 86 L60.392 92 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
+            <path d="M70.784 74 L81.176 68 L81.176 80 L70.784 86 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
+            <path d="M81.176 68 L91.568 62 L91.568 74 L81.176 80 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
+            <path d="M50 2 L8.432 26 L50 50 L91.568 26 Z" fill="none" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
+            <g transform="matrix(0.866, 0.5, -0.866, 0.5, 50, 26) scale(0.75)">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="var(--splash-logo-fill)"/>
+              <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="var(--splash-logo-fill)" fill-opacity="0.4"/>
+            </g>
+          </svg>
+        </div>
+      `;
+      loadingElement.style.backgroundColor = 'var(--splash-background)';
+      loadingElement.style.display = 'flex';
+      loadingElement.style.alignItems = 'center';
+      loadingElement.style.justifyContent = 'center';
+      loadingElement.style.position = 'fixed';
+      loadingElement.style.top = '0';
+      loadingElement.style.left = '0';
+      loadingElement.style.width = '100%';
+      loadingElement.style.height = '100vh';
+      loadingElement.style.zIndex = '9999';
+      loadingElement.style.opacity = '0';
+      loadingElement.style.transition = 'opacity 0.25s ease-in-out';
+      
+      document.body.appendChild(loadingElement);
+    }
+    
+    // Force a reflow
+    loadingElement.offsetHeight;
+    
+    loadingElement.style.opacity = '1';
+    const inner = document.getElementById('initial-loading-inner');
+    if (inner) {
+      inner.style.opacity = '1';
+    }
+  } catch (e) {
+    console.warn('Failed to display splash screen overlay:', e);
+  }
+};
+
+const hideSplashOverlay = () => {
+  try {
+    const loadingElement = document.getElementById('initial-loading');
+    if (loadingElement) {
+      loadingElement.style.opacity = '0';
+      setTimeout(() => {
+        loadingElement.remove();
+      }, 300);
+    }
+  } catch (e) {
+    console.warn('Failed to hide splash screen overlay:', e);
+  }
+};
+
 export const GitView: React.FC = () => {
   const { t } = useI18n();
   const { git } = useRuntimeAPIs();
@@ -1293,6 +1387,7 @@ export const GitView: React.FC = () => {
       await git.createBranch(currentDirectory, branchName, checkoutBase ?? 'HEAD');
       toast.success(t('gitView.toast.createdBranch', { name: branchName }));
 
+      showSplashOverlay();
       // Checkout the new branch and stay on it
       await git.checkoutBranch(currentDirectory, branchName);
       await checkAndSetReloadFlag(currentDirectory);
@@ -1326,6 +1421,7 @@ export const GitView: React.FC = () => {
         toast.success(t('gitView.toast.upstreamSet', { branch: branchName, remote: remoteName }));
       }
     } catch (err) {
+      hideSplashOverlay();
       const message = err instanceof Error ? err.message : t('gitView.toast.createBranchFailed');
       toast.error(message);
       throw err;
@@ -1370,12 +1466,14 @@ export const GitView: React.FC = () => {
     }
 
     try {
+      showSplashOverlay();
       await git.checkoutBranch(currentDirectory, normalized);
       await checkAndSetReloadFlag(currentDirectory);
       toast.success(t('gitView.toast.checkedOut', { name: normalized }));
       await refreshStatusAndBranches();
       await refreshLog();
     } catch (err) {
+      hideSplashOverlay();
       const message =
         err instanceof Error ? err.message : t('gitView.toast.checkoutFailed', { name: normalized });
       toast.error(message);
