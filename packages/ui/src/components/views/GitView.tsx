@@ -369,6 +369,14 @@ export const GitView: React.FC = () => {
   };
   const [worktreeBootstrapStatus, setWorktreeBootstrapStatus] = React.useState<'pending' | 'ready' | 'failed' | null>(null);
   const [isWaitingForGitRefreshAfterBootstrap, setIsWaitingForGitRefreshAfterBootstrap] = React.useState(false);
+  const [selectedBranch, setSelectedBranch] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (status?.current) {
+      setSelectedBranch(status.current);
+    }
+  }, [status?.current]);
+
   const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
   const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
   const setDraftBootstrapPendingDirectory = useSessionUIStore((s) => s.setDraftBootstrapPendingDirectory);
@@ -1279,20 +1287,48 @@ export const GitView: React.FC = () => {
     const action: CommitAction = options.pushAfter ? 'commitAndPush' : 'commit';
     setCommitAction(action);
 
+    const originalBranch = status?.current;
     try {
-      await git.createGitCommit(currentDirectory, commitMessage.trim(), {
-        files: filesToCommit,
-        stageFiles: [],
-      });
-      bumpIndexRevision(currentDirectory);
-      toast.success(t('gitView.toast.commitCreated'));
-      setCommitMessage('');
-      clearGeneratedHighlights();
+      const isDifferentBranch = selectedBranch && selectedBranch !== originalBranch;
+
+      if (isDifferentBranch) {
+        // Silent checkout target branch
+        await git.checkoutBranch(currentDirectory, selectedBranch);
+      }
+
+      try {
+        await git.createGitCommit(currentDirectory, commitMessage.trim(), {
+          files: filesToCommit,
+          stageFiles: [],
+        });
+        bumpIndexRevision(currentDirectory);
+        if (isDifferentBranch) {
+          toast.success(t('gitView.toast.commitCreatedOnBranch', { branch: selectedBranch }));
+        } else {
+          toast.success(t('gitView.toast.commitCreated'));
+        }
+        setCommitMessage('');
+        clearGeneratedHighlights();
+      } finally {
+        if (isDifferentBranch && originalBranch) {
+          // Silent checkout original branch back
+          await git.checkoutBranch(currentDirectory, originalBranch);
+        }
+      }
 
       await refreshStatusAndBranches();
 
       if (options.pushAfter) {
-        const result = await git.gitPush(currentDirectory);
+        let result;
+        if (isDifferentBranch) {
+          const trackingRemote = status?.tracking?.split('/')[0] || 'origin';
+          result = await git.gitPush(currentDirectory, {
+            remote: trackingRemote,
+            branch: selectedBranch,
+          });
+        } else {
+          result = await git.gitPush(currentDirectory);
+        }
         toast.success(t('gitView.toast.pushedToUpstream', { name: getPushedRemoteName(result) }));
         triggerFireworks();
         await refreshStatusAndBranches(false);
@@ -1477,6 +1513,7 @@ export const GitView: React.FC = () => {
       const message =
         err instanceof Error ? err.message : t('gitView.toast.checkoutFailed', { name: normalized });
       toast.error(message);
+      setSelectedBranch(status?.current ?? null);
     }
   };
 
@@ -2523,6 +2560,8 @@ export const GitView: React.FC = () => {
             actionTabItems={actionTabItems}
             activeActionTab={actionTab}
             onSelectActionTab={(tabID) => setActionTab(tabID as ActionTab)}
+            selectedBranch={selectedBranch}
+            onSelectBranch={setSelectedBranch}
           />
 
       {/* In-progress operation banner */}
