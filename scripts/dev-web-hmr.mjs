@@ -112,18 +112,15 @@ function clearViteCache() {
 
 clearViteCache();
 
-const nodemonPath = path.join(repoRoot, 'node_modules/nodemon/bin/nodemon.js');
 const api = run(
   'api',
   'node',
   [
-    nodemonPath,
     '--watch',
-    'server',
-    '--ext',
-    'js',
-    '--exec',
-    `node server/index.js --port ${backendPort}`,
+    '--watch-path=server',
+    'server/index.js',
+    '--port',
+    backendPort,
   ],
   {
     OPENCHAMBER_PORT: backendPort,
