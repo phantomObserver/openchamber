@@ -344,15 +344,15 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
 
   return (
     <header className="@container/git-header px-3 py-2 bg-transparent">
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div className="min-w-0 flex-1">
+      <div className="flex items-center justify-between gap-1 min-w-0">
+        <div className="min-w-0 flex-1 flex items-center gap-0">
           {isWorktreeMode ? (
             <WorktreeBranchDisplay
               currentBranch={status.current}
               onRename={onRenameBranch}
             />
           ) : (
-            <div className="flex items-center gap-1.5 min-w-0">
+            <>
               <BranchSelector
                 currentBranch={status.current}
                 selectedBranch={selectedBranch}
@@ -376,11 +376,11 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent sideOffset={8}>
-                    {t('gitView.branch.loadBranchTooltip', 'Load this branch into workspace')}
+                    {t('gitView.branch.loadBranchTooltip')}
                   </TooltipContent>
                 </Tooltip>
               )}
-            </div>
+            </>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">

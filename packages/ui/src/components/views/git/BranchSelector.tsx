@@ -169,7 +169,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 min-w-0 max-w-[12rem] justify-start gap-1.5 px-2 py-1"
+              className="h-8 min-w-0 justify-start gap-1.5 px-2 py-1"
               disabled={disabled}
             >
               <Icon name="git-branch" className="size-4 text-primary" />
@@ -177,7 +177,6 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
                 selectedBranch && selectedBranch !== currentBranch ? "text-muted-foreground font-normal" : ""
               }`}>
                 {selectedBranch || currentBranch || t('gitView.branch.detachedHead')}
-                {selectedBranch && selectedBranch !== currentBranch && ` (${t('gitView.branch.notLoaded', 'not loaded')})`}
               </span>
               <Icon name="arrow-down-s" className="size-4 opacity-60" />
             </Button>
