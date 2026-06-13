@@ -2123,7 +2123,16 @@ export async function revertFile(directory, filePath, options = {}) {
     const directoryPath = normalizeDirectoryPath(directory);
     const directoryGit = await createGit(directoryPath);
     const repoRoot = await resolveGitRepositoryRoot(directoryPath, directoryGit);
-    const { absolutePath, repoPath } = await resolveGitFileContext(directoryPath, directoryGit, filePath, repoRoot);
+    let context;
+    try {
+      context = await resolveGitFileContext(directoryPath, directoryGit, filePath, repoRoot);
+    } catch (error) {
+      if (error && error.message === 'Invalid file path') {
+        return;
+      }
+      throw error;
+    }
+    const { absolutePath, repoPath } = context;
     const git = await createGit(repoRoot);
 
     const isTracked = await git
