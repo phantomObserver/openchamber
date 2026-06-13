@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, watch } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -112,9 +112,52 @@ function clearViteCache() {
 
 clearViteCache();
 
-const api = run('api', 'bun', ['run', '--cwd', 'packages/web', 'dev:server:watch'], {
-  OPENCHAMBER_PORT: backendPort,
-});
+const lockFilePath = path.join(repoRoot, '.checkout_lock');
+let isRestarting = false;
+let restartTimeout = null;
+
+function runApiServer() {
+  const child = run(
+    'api',
+    'node',
+    ['server/index.js', '--port', backendPort],
+    {
+      OPENCHAMBER_PORT: backendPort,
+    },
+    {
+      cwd: webRoot,
+    }
+  );
+
+  child.on('exit', (code, signal) => {
+    if (shuttingDown) return;
+    if (isRestarting) return;
+
+    if (code !== 0 || signal) {
+      console.error(`[dev:web:hmr] api exited unexpectedly (code=${code ?? 'null'} signal=${signal ?? 'none'})`);
+      shutdown(typeof code === 'number' ? code : 1).catch(() => process.exit(1));
+      return;
+    }
+
+    shutdown(0).catch(() => process.exit(1));
+  });
+
+  return child;
+}
+
+function triggerRestart() {
+  if (restartTimeout) clearTimeout(restartTimeout);
+  restartTimeout = setTimeout(async () => {
+    if (shuttingDown) return;
+    console.log('[dev:web:hmr] File change detected. Restarting API server...');
+    isRestarting = true;
+    await stopChildTree(api);
+    isRestarting = false;
+    api = runApiServer();
+  }, 1000);
+}
+
+let api = runApiServer();
 const vite = run(
   'vite',
   'bun',
@@ -142,9 +185,46 @@ console.log('[dev:web:hmr] IMPORTANT: open UI URL above for HMR; backend URL has
 
 let shuttingDown = false;
 
+const serverWatcher = watch(
+  path.join(webRoot, 'server'),
+  { recursive: true },
+  (eventType, filename) => {
+    if (existsSync(lockFilePath)) {
+      return;
+    }
+    triggerRestart();
+  }
+);
+serverWatcher.on('error', (err) => {
+  console.warn('[dev:web:hmr] Server file watcher warning:', err);
+});
+
+let lockFileExisted = existsSync(lockFilePath);
+const rootWatcher = watch(
+  repoRoot,
+  { recursive: false },
+  (eventType, filename) => {
+    if (filename === '.checkout_lock') {
+      const lockExists = existsSync(lockFilePath);
+      if (lockFileExisted && !lockExists) {
+        console.log('[dev:web:hmr] Checkout complete. Restarting API server...');
+        triggerRestart();
+      }
+      lockFileExisted = lockExists;
+    }
+  }
+);
+rootWatcher.on('error', (err) => {
+  console.warn('[dev:web:hmr] Root file watcher warning:', err);
+});
+
 async function shutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
+  try {
+    serverWatcher.close();
+    rootWatcher.close();
+  } catch {}
   await Promise.all([stopChildTree(api), stopChildTree(vite)]);
   process.exit(exitCode);
 }
@@ -163,7 +243,6 @@ function onChildExit(label) {
   };
 }
 
-api.on('exit', onChildExit('api'));
 vite.on('exit', onChildExit('vite'));
 
 process.on('SIGINT', () => {

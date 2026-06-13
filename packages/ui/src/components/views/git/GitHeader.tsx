@@ -48,6 +48,8 @@ interface GitHeaderProps {
   actionTabItems?: SortableTabsStripItem[];
   activeActionTab?: string;
   onSelectActionTab?: (tabID: string) => void;
+  selectedBranch: string | null;
+  onSelectBranch: (branch: string) => void;
 }
 
 const IDENTITY_ICON_MAP: Record<string, IconName> = {
@@ -252,6 +254,8 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
   actionTabItems,
   activeActionTab,
   onSelectActionTab,
+  selectedBranch,
+  onSelectBranch,
 }) => {
   const { t } = useI18n();
   if (!status) {
@@ -340,23 +344,43 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
 
   return (
     <header className="@container/git-header px-3 py-2 bg-transparent">
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div className="min-w-0 flex-1">
+      <div className="flex items-center justify-between gap-1 min-w-0">
+        <div className="min-w-0 flex-1 flex items-center gap-0">
           {isWorktreeMode ? (
             <WorktreeBranchDisplay
               currentBranch={status.current}
               onRename={onRenameBranch}
             />
           ) : (
-            <BranchSelector
-              currentBranch={status.current}
-              localBranches={localBranches}
-              remoteBranches={remoteBranches}
-              branchInfo={branchInfo}
-              onCheckout={onCheckoutBranch}
-              onCreate={onCreateBranch}
-              remotes={remotes}
-            />
+            <>
+              <BranchSelector
+                currentBranch={status.current}
+                selectedBranch={selectedBranch}
+                localBranches={localBranches}
+                remoteBranches={remoteBranches}
+                branchInfo={branchInfo}
+                onCheckout={onSelectBranch}
+                onCreate={onCreateBranch}
+                remotes={remotes}
+              />
+              {selectedBranch && selectedBranch !== status.current && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 px-0 text-muted-foreground hover:text-foreground shrink-0"
+                      onClick={() => onCheckoutBranch(selectedBranch)}
+                    >
+                      <Icon name="refresh" className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent sideOffset={8}>
+                    {t('gitView.branch.loadBranchTooltip')}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">

@@ -12,6 +12,45 @@ const pwaDevEnabled = process.env.OPENCHAMBER_DISABLE_PWA_DEV !== '1';
 const reactScanToggle = (process.env.VITE_ENABLE_REACT_SCAN ?? '').toLowerCase();
 const enableReactScan = reactScanToggle === '1' || reactScanToggle === 'true' || reactScanToggle === 'on' || reactScanToggle === 'yes';
 
+const wrapSocketError = (socket: any) => {
+  if (!socket) return;
+  const originalEmit = socket.emit;
+  socket.emit = function (event: string, ...args: any[]) {
+    if (event === 'error') {
+      const err = args[0];
+      if (err && (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.code === 'ECONNABORTED')) {
+        return false;
+      }
+    }
+    return originalEmit.apply(this, [event, ...args]);
+  };
+};
+
+const configureProxy = (proxy: any) => {
+  const originalEmit = proxy.emit;
+  proxy.emit = function (event: string, ...args: any[]) {
+    if (event === 'error') {
+      const err = args[0];
+      if (err && (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.code === 'ECONNABORTED')) {
+        return false;
+      }
+    }
+    if (event === 'open') {
+      const proxySocket = args[0];
+      if (proxySocket) {
+        wrapSocketError(proxySocket);
+      }
+    }
+    if (event === 'proxyReqWs') {
+      const clientSocket = args[2];
+      if (clientSocket) {
+        wrapSocketError(clientSocket);
+      }
+    }
+    return originalEmit.apply(this, [event, ...args]);
+  };
+};
+
 export default defineConfig({
   root: path.resolve(__dirname, '.'),
   plugins: [
@@ -84,15 +123,18 @@ export default defineConfig({
       '/auth': {
         target: `http://127.0.0.1:${process.env.OPENCHAMBER_PORT || 3001}`,
         changeOrigin: true,
+        configure: configureProxy,
       },
       '/health': {
         target: `http://127.0.0.1:${process.env.OPENCHAMBER_PORT || 3001}`,
         changeOrigin: true,
+        configure: configureProxy,
       },
       '/api': {
         target: `http://127.0.0.1:${process.env.OPENCHAMBER_PORT || 3001}`,
         changeOrigin: true,
         ws: true,
+        configure: configureProxy,
       },
     },
   },

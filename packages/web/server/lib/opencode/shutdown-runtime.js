@@ -83,7 +83,7 @@ export const createGracefulShutdownRuntime = (dependencies) => {
       }
 
       killProcessOnPort(portToKill);
-      if (!(await waitForPortRelease(portToKill, 5000))) {
+      if (!(await waitForPortRelease(portToKill, 2000))) {
         console.warn(`Timed out waiting for OpenCode port ${portToKill} to be released during shutdown`);
       }
     } else {
@@ -92,6 +92,13 @@ export const createGracefulShutdownRuntime = (dependencies) => {
 
     const server = getServer();
     if (server) {
+      if (typeof server.closeAllConnections === 'function') {
+        try {
+          server.closeAllConnections();
+        } catch (err) {
+          console.warn('Error closing all connections:', err);
+        }
+      }
       let closeTimeout = null;
       try {
         await Promise.race([

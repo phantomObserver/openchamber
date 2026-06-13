@@ -5,9 +5,33 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '../../../..');
+const lockFilePath = path.join(repoRoot, '.checkout_lock');
+
+async function withCheckoutLock(action) {
+  try {
+    fs.writeFileSync(lockFilePath, '1');
+  } catch (err) {
+    console.warn('Failed to create checkout lock file:', err);
+  }
+  try {
+    return await action();
+  } finally {
+    try {
+      if (fs.existsSync(lockFilePath)) {
+        fs.unlinkSync(lockFilePath);
+      }
+    } catch (err) {
+      console.warn('Failed to delete checkout lock file:', err);
+    }
+  }
+}
 const execFileAsync = promisify(execFile);
 const gpgconfCandidates = ['gpgconf', '/opt/homebrew/bin/gpgconf', '/usr/local/bin/gpgconf'];
 let resolvedGitBinary = null;
@@ -2500,7 +2524,16 @@ export async function revertFile(directory, filePath, options = {}) {
     const directoryPath = normalizeDirectoryPath(directory);
     const directoryGit = await createGit(directoryPath);
     const repoRoot = await resolveGitRepositoryRoot(directoryPath, directoryGit);
-    const { absolutePath, repoPath } = await resolveGitFileContext(directoryPath, directoryGit, filePath, repoRoot);
+    let context;
+    try {
+      context = await resolveGitFileContext(directoryPath, directoryGit, filePath, repoRoot);
+    } catch (error) {
+      if (error && error.message === 'Invalid file path') {
+        return;
+      }
+      throw error;
+    }
+    const { absolutePath, repoPath } = context;
     const git = await createGit(repoRoot);
 
     const isTracked = await git
@@ -3127,13 +3160,15 @@ export async function createBranch(directory, branchName, options = {}) {
 export async function checkoutBranch(directory, branchName) {
   const { git } = await createRepositoryGitContext(directory);
 
-  try {
-    await git.checkout(branchName);
-    return { success: true, branch: branchName };
-  } catch (error) {
-    console.error('Failed to checkout branch:', error);
-    throw error;
-  }
+  return withCheckoutLock(async () => {
+    try {
+      await git.checkout(branchName);
+      return { success: true, branch: branchName };
+    } catch (error) {
+      console.error('Failed to checkout branch:', error);
+      throw error;
+    }
+  });
 }
 
 export async function checkoutCommit(directory, hash) {
@@ -3141,13 +3176,15 @@ export async function checkoutCommit(directory, hash) {
     throw new Error('Invalid commit hash');
   }
   const { git } = await createRepositoryGitContext(directory);
-  try {
-    await git.checkout(hash);
-    return { success: true };
-  } catch (error) {
-    console.error('Failed to checkout commit:', error);
-    throw error;
-  }
+  return withCheckoutLock(async () => {
+    try {
+      await git.checkout(hash);
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to checkout commit:', error);
+      throw error;
+    }
+  });
 }
 
 export async function cherryPick(directory, hash) {

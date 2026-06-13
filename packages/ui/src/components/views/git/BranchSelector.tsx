@@ -26,6 +26,7 @@ interface BranchInfo {
 
 interface BranchSelectorProps {
   currentBranch: string | null | undefined;
+  selectedBranch: string | null | undefined;
   localBranches: string[];
   remoteBranches: string[];
   branchInfo: Record<string, BranchInfo> | undefined;
@@ -50,6 +51,7 @@ const sanitizeBranchNameInput = (value: string): string => {
 
 export const BranchSelector: React.FC<BranchSelectorProps> = ({
   currentBranch,
+  selectedBranch,
   localBranches,
   remoteBranches,
   branchInfo,
@@ -91,7 +93,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
   }, [search, remoteBranches]);
 
   const handleCheckout = (branch: string) => {
-    if (branch === currentBranch) {
+    if (branch === selectedBranch) {
       setIsOpen(false);
       return;
     }
@@ -167,12 +169,14 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 min-w-0 max-w-full justify-start gap-1.5 px-2 py-1"
+              className="h-8 min-w-0 justify-start gap-1.5 px-2 py-1"
               disabled={disabled}
             >
               <Icon name="git-branch" className="size-4 text-primary" />
-              <span className="min-w-0 truncate font-medium text-left">
-                {currentBranch || t('gitView.branch.detachedHead')}
+              <span className={`min-w-0 truncate font-medium text-left ${
+                selectedBranch && selectedBranch !== currentBranch ? "text-muted-foreground font-normal" : ""
+              }`}>
+                {selectedBranch || currentBranch || t('gitView.branch.detachedHead')}
               </span>
               <Icon name="arrow-down-s" className="size-4 opacity-60" />
             </Button>
